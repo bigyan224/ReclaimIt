@@ -1,13 +1,16 @@
 import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import RecentItemCard from "./RecentItemCard";
+import { useI18n } from "../i18n/I18nProvider";
 
 export default function RecentItemsList({ items, onDelete }) {
+  const { t } = useI18n();
+
   if (!items || items.length === 0) {
     return (
       <View style={styles.activityPlaceholder}>
                     <Ionicons name="time" size={48} color="#E0E0E0" />
-                    <Text style={styles.placeholderText}>No recent activity</Text>
+                    <Text style={styles.placeholderText}>{t('recent.noRecentActivity')}</Text>
                   </View>
     );
   }

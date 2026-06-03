@@ -8,38 +8,95 @@ import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuthenticatedApi } from '../services/api';
 import socketService from '../services/socket';
+import { useI18n } from '../i18n/I18nProvider';
+
+// Module-level cache to avoid re-fetch on tab switches/remounts in same app session.
+let cachedChats = null;
+let hasFetchedChatsOnce = false;
+let chatsFetchPromise = null;
+let cachedChatErrorKey = null;
+let cachedChatUserId = null;
 
 export default function ChatScreen() {
   const { user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
-  const [chats, setChats] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [chats, setChats] = useState(cachedChats ?? []);
+  const [loading, setLoading] = useState(!hasFetchedChatsOnce);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(cachedChatErrorKey ? t(cachedChatErrorKey) : null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
 
-  const fetchChats = async () => {
+  const applyCachedChats = () => {
+    setChats(cachedChats ?? []);
+    setError(cachedChatErrorKey ? t(cachedChatErrorKey) : null);
+  };
+
+  const fetchChats = async (force = false) => {
     try {
       setError(null);
-      const token = await getToken();
-      const api = getAuthenticatedApi(token);
-      const response = await api.getChats();
-      setChats(response.chats || []);
+
+      if (cachedChatUserId && cachedChatUserId !== user?.id) {
+        cachedChats = null;
+        hasFetchedChatsOnce = false;
+        chatsFetchPromise = null;
+        cachedChatErrorKey = null;
+      }
+
+      if (!force && hasFetchedChatsOnce) {
+        applyCachedChats();
+        setLoading(false);
+        if (__DEV__) console.log('Using cached chats (session-hydrated)');
+        return;
+      }
+
+      if (!force && chatsFetchPromise) {
+        await chatsFetchPromise;
+        applyCachedChats();
+        setLoading(false);
+        return;
+      }
+
+      const runFetch = async () => {
+        const token = await getToken({ skipCache: true });
+        const api = getAuthenticatedApi(token, getToken);
+        const response = await api.getChats();
+        cachedChats = response.chats || [];
+        cachedChatUserId = user?.id || null;
+        cachedChatErrorKey = null;
+        hasFetchedChatsOnce = true;
+        return { token, chats: cachedChats };
+      };
+
+      let fetchResult;
+      if (force) {
+        fetchResult = await runFetch();
+      } else {
+        chatsFetchPromise = runFetch();
+        fetchResult = await chatsFetchPromise;
+      }
+
+      setChats(fetchResult.chats);
+      const token = await getToken({ skipCache: true });
+      const chatsToConnect = fetchResult.chats;
       
       // Connect to socket with all chat IDs
-      if (response.chats && response.chats.length > 0) {
-        const chatIds = response.chats.map(c => c._id);
+      if (chatsToConnect && chatsToConnect.length > 0) {
+        const chatIds = chatsToConnect.map(c => c._id);
         if (!socketService.isConnected()) {
-          socketService.connect(user?.id, chatIds);
+          socketService.connect(user?.id, chatIds, token);
         }
       }
     } catch (err) {
       console.error('Error fetching chats:', err);
-      setError('Failed to load chats');
+      cachedChatErrorKey = 'chat.failedLoadChats';
+      hasFetchedChatsOnce = true;
+      setError(t('chat.failedLoadChats'));
     } finally {
+      chatsFetchPromise = null;
       setLoading(false);
       setRefreshing(false);
     }
@@ -48,22 +105,10 @@ export default function ChatScreen() {
   useEffect(() => {
     const initChatAndSocket = async () => {
       try {
-        const token = await getToken();
-        const api = getAuthenticatedApi(token);
-        const response = await api.getChats();
-        setChats(response.chats || []);
-        setLoading(false);
-        
-        // Connect socket with all chat IDs
-        if (response.chats && response.chats.length > 0) {
-          const chatIds = response.chats.map(c => c._id);
-          if (!socketService.isConnected()) {
-            socketService.connect(user?.id, chatIds, token);
-          }
-        }
+        await fetchChats(false);
       } catch (err) {
         console.error('Error fetching chats:', err);
-        setError('Failed to load chats');
+        setError(t('chat.failedLoadChats'));
         setLoading(false);
       }
     };
@@ -113,7 +158,7 @@ export default function ChatScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchChats();
+    fetchChats(true);
   };
 
   const formatTime = (date) => {
@@ -124,10 +169,10 @@ export default function ChatScreen() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return t('chat.justNow');
+    if (diffMins < 60) return t('chat.minutesAgo', { count: diffMins });
+    if (diffHours < 24) return t('chat.hoursAgo', { count: diffHours });
+    if (diffDays < 7) return t('chat.daysAgo', { count: diffDays });
     return messageDate.toLocaleDateString();
   };
 
@@ -136,7 +181,7 @@ export default function ChatScreen() {
       pathname: '/chat-conversation',
       params: {
         chatId: chat._id,
-        otherUserName: chat.otherUser?.name || chat.otherUser?.email?.split('@')[0] || 'User'
+        otherUserName: chat.otherUser?.name || chat.otherUser?.email?.split('@')[0] || t('chat.user')
       }
     });
   };
@@ -144,7 +189,7 @@ export default function ChatScreen() {
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
+        <Text style={styles.headerTitle}>{t('chat.title')}</Text>
       </View>
 
       {loading ? (
@@ -156,7 +201,7 @@ export default function ChatScreen() {
           <Ionicons name="alert-circle-outline" size={48} color="#CBD5E1" />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={fetchChats}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : chats.length === 0 ? (
@@ -169,9 +214,9 @@ export default function ChatScreen() {
         >
           <View style={styles.placeholderContainer}>
             <Ionicons name="chatbubbles-outline" size={80} color="#CBD5E1" />
-            <Text style={styles.placeholderTitle}>No Messages Yet</Text>
+            <Text style={styles.placeholderTitle}>{t('chat.noMessagesTitle')}</Text>
             <Text style={styles.placeholderText}>
-              When you match with someone, you can start chatting here to coordinate the return of lost items.
+              {t('chat.noMessagesBody')}
             </Text>
           </View>
         </ScrollView>
@@ -201,14 +246,14 @@ export default function ChatScreen() {
               <View style={styles.chatContent}>
                 <View style={styles.chatHeader}>
                   <Text style={styles.chatName} numberOfLines={1}>
-                    {chat.otherUser?.name || chat.otherUser?.email?.split('@')[0] || 'User'}
+                    {chat.otherUser?.name || chat.otherUser?.email?.split('@')[0] || t('chat.user')}
                   </Text>
                   <Text style={styles.chatTime}>{formatTime(chat.lastMessageAt)}</Text>
                 </View>
 
                 <View style={styles.chatDetails}>
                   <Text style={styles.itemInfo} numberOfLines={1}>
-                    {chat.items?.map(item => item.itemName).join(' & ') || 'Match'}
+                    {chat.items?.map(item => item.itemName).join(' & ') || t('chat.match')}
                   </Text>
                 </View>
 
@@ -220,7 +265,7 @@ export default function ChatScreen() {
                     ]}
                     numberOfLines={1}
                   >
-                    {chat.lastMessage || 'No messages yet'}
+                    {chat.lastMessage || t('chat.noMessagesYet')}
                   </Text>
                   {chat.unreadCount > 0 && (
                     <View style={styles.unreadBadge}>

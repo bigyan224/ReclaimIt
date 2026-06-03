@@ -3,12 +3,14 @@ import { Platform, Alert, Linking } from 'react-native';
 import * as Location from "expo-location";
 import * as ImagePicker from 'expo-image-picker';
 import { useImageUpload } from './useImageUpload';
+import { useI18n } from '../i18n/I18nProvider';
 
 /**
  * Shared hook for both report-found and report-lost forms
  * Handles location, image upload, location search, and form validation
  */
 export const useItemReportForm = (initialType = 'LOST') => {
+  const { t } = useI18n();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -52,7 +54,7 @@ export const useItemReportForm = (initialType = 'LOST') => {
         }
 
         if (status !== "granted") {
-          setLocationError("Location access not granted. You can manually enter location or enable it in settings.");
+          setLocationError(t('form.locationNotGranted'));
           return;
         }
 
@@ -84,10 +86,10 @@ export const useItemReportForm = (initialType = 'LOST') => {
         }
       } catch (error) {
         console.error("Location error:", error);
-        setLocationError("Could not get your location. Please enter it manually.");
+        setLocationError(t('form.locationFetchFailed'));
       }
     })();
-  }, []);
+  }, [t]);
 
   // Pick image from library
   const pickImage = async () => {
@@ -98,12 +100,12 @@ export const useItemReportForm = (initialType = 'LOST') => {
         
         if (status !== 'granted') {
           Alert.alert(
-            'Permission Required',
-            'Please grant photo library access to upload images. You can change this in your device settings.',
+            t('form.permissionRequired'),
+            t('form.photoPermissionMsg'),
             [
-              { text: 'Cancel', style: 'cancel' },
+              { text: t('common.cancel'), style: 'cancel' },
               { 
-                text: 'Open Settings', 
+                text: t('form.openSettings'), 
                 onPress: () => {
                   if (Platform.OS === 'ios') {
                     Linking.openURL('app-settings:');
@@ -141,9 +143,9 @@ export const useItemReportForm = (initialType = 'LOST') => {
       }
     } catch (err) {
       console.error('Error picking image:', err);
-      const message = err.response?.data?.error || err.message || 'Failed to pick image. Please try again.';
+      const message = err.response?.data?.error || err.message || t('form.pickImageFailed');
       setError(message);
-      Alert.alert('Error', message);
+      Alert.alert(t('common.error'), message);
       setImagePreview(null);
     } finally {
       setUploading(false);
@@ -279,33 +281,33 @@ export const useItemReportForm = (initialType = 'LOST') => {
   // Validate form based on type
   const validateForm = useCallback((type = initialType) => {
     if (!formData.name.trim()) {
-      setError('Item name is required');
+      setError(t('form.validation.itemNameRequired'));
       return false;
     }
     if (!formData.description.trim()) {
-      setError('Description is required');
+      setError(t('form.validation.descriptionRequired'));
       return false;
     }
     if (!formData.location.trim()) {
-      setError('Location is required');
+      setError(t('form.validation.locationRequired'));
       return false;
     }
     if (!formData.category) {
-      setError('Category is required');
+      setError(t('form.validation.categoryRequired'));
       return false;
     }
     if (!formData.color) {
-      setError('Color is required');
+      setError(t('form.validation.colorRequired'));
       return false;
     }
     // Image is required only for FOUND items
     if (type === 'FOUND' && (!formData.image || !formData.image.url)) {
-      setError('Image is required for found items');
+      setError(t('form.validation.imageRequiredFound'));
       return false;
     }
     setError('');
     return true;
-  }, [formData, initialType]);
+  }, [formData, initialType, t]);
 
   // Request location permission for map interactions
   const requestLocationPermission = async () => {
@@ -314,12 +316,12 @@ export const useItemReportForm = (initialType = 'LOST') => {
       
       if (status !== 'granted') {
         Alert.alert(
-          'Location Permission Required',
-          'Please grant location access to use the map. You can enable it in your device settings.',
+          t('form.locationPermissionRequired'),
+          t('form.locationPermissionMsg'),
           [
-            { text: 'Cancel', style: 'cancel' },
+            { text: t('common.cancel'), style: 'cancel' },
             { 
-              text: 'Open Settings', 
+              text: t('form.openSettings'), 
               onPress: () => {
                 if (Platform.OS === 'ios') {
                   Linking.openURL('app-settings:');

@@ -7,11 +7,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { BottomNavBar } from "../../components/BottomNavBar";
 import { getAuthenticatedApi } from "../../services/api";
 import RecentItemsList from "../../components/RecentItemsList";
+import { useI18n } from "../../i18n/I18nProvider";
 
 // Module-level cache to persist items and notifications across mounts
 let cachedItems = null;
 let cachedNotifications = null;
 let cachedUnreadCount = 0;
+let hasFetchedHomeDataOnce = false;
+let homeDataFetchPromise = null;
+let cachedHomeErrorKey = null;
+let cachedHomeUserId = null;
 
 const styles = StyleSheet.create({
   container: {
@@ -169,6 +174,7 @@ export default function Page() {
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
   const { getToken } = useAuth();
 
@@ -182,6 +188,13 @@ export default function Page() {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  const applyCachedHomeData = () => {
+    setItems(cachedItems ?? []);
+    setNotifications(cachedNotifications ?? []);
+    setUnreadCount(cachedUnreadCount || 0);
+    setError(cachedHomeErrorKey ? t(cachedHomeErrorKey) : null);
+  };
+
   // Manual refresh function
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -189,12 +202,13 @@ export default function Page() {
     setError(null);
 
     try {
-      const token = await getToken().catch(err => {
+      // Force refresh token to ensure it's valid
+      const token = await getToken({ skipCache: true }).catch(err => {
         console.error('getToken failed:', err);
         return null;
       });
-      const api = getAuthenticatedApi(token);
-      if (__DEV__) console.log('Token present:', !!token);
+      const api = getAuthenticatedApi(token, getToken);
+      if (__DEV__) console.log('Token present:', !!token, 'Token fresh:', true);
 
       // Fetch items always; fetch notifications only when we have a token
       const itemsPromise = api.getItems();
@@ -208,65 +222,92 @@ export default function Page() {
       setUnreadCount(notificationsData?.unreadCount ?? 0);
       cachedNotifications = notificationsData?.notifications ?? [];
       cachedUnreadCount = notificationsData?.unreadCount || 0;
+      cachedHomeErrorKey = null;
+      hasFetchedHomeDataOnce = true;
       if (__DEV__) console.log(`Refreshed: ${itemsData?.items?.length || 0} items, ${notificationsData?.unreadCount || 0} unread`);
     } catch (err) {
       console.error('Error fetching data:', err?.response?.status, err?.response?.data || err?.message);
-      setError("Could not load data");
+      cachedHomeErrorKey = 'home.loadErrorShort';
+      hasFetchedHomeDataOnce = true;
+      setError(t('home.loadErrorShort'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Initial fetch: load items once on mount and use cache across remounts
+  // Initial fetch: one network fetch per app session; remounts read module cache only.
   useEffect(() => {
     let mounted = true;
-    const fetchInitialItems = async () => {
-      setLoading(true);
-      setError(null);
 
-      if (cachedItems && cachedNotifications) {
-        setItems(cachedItems);
-        setNotifications(cachedNotifications);
-        setUnreadCount(cachedUnreadCount || 0);
-        setLoading(false);
-        if (__DEV__) console.log(`Using cached items (${cachedItems.length}) and ${cachedNotifications.length} notifications`);
+    const hydrateOnce = async () => {
+      setLoading(true);
+
+      if (cachedHomeUserId && cachedHomeUserId !== user?.id) {
+        cachedItems = null;
+        cachedNotifications = null;
+        cachedUnreadCount = 0;
+        hasFetchedHomeDataOnce = false;
+        homeDataFetchPromise = null;
+        cachedHomeErrorKey = null;
+      }
+
+      if (hasFetchedHomeDataOnce) {
+        if (mounted) {
+          applyCachedHomeData();
+          setLoading(false);
+        }
+        if (__DEV__) console.log('Using cached home data (session-hydrated)');
         return;
       }
 
-      try {
-        const token = await getToken().catch(err => {
-          console.error('getToken failed:', err);
-          return null;
-        });
-        const api = getAuthenticatedApi(token);
-        if (__DEV__) console.log('Token present:', !!token);
+      if (!homeDataFetchPromise) {
+        homeDataFetchPromise = (async () => {
+          try {
+            // Force refresh token to ensure it's valid
+            const token = await getToken({ skipCache: true }).catch(err => {
+              console.error('getToken failed:', err);
+              return null;
+            });
+            const api = getAuthenticatedApi(token, getToken);
+            if (__DEV__) console.log('Token present:', !!token, 'Token fresh:', true);
 
-        const itemsPromise = api.getItems();
-        const notificationsPromise = token ? api.getNotifications() : Promise.resolve({ notifications: [], unreadCount: 0 });
+            const itemsPromise = api.getItems();
+            const notificationsPromise = token ? api.getNotifications() : Promise.resolve({ notifications: [], unreadCount: 0 });
 
-        const [itemsData, notificationsData] = await Promise.all([itemsPromise, notificationsPromise]);
-        if (!mounted) return;
-        setItems(itemsData?.items ?? []);
-        cachedItems = itemsData?.items ?? [];
-        setNotifications(notificationsData?.notifications ?? []);
-        setUnreadCount(notificationsData?.unreadCount || 0);
-        cachedNotifications = notificationsData?.notifications ?? [];
-        cachedUnreadCount = notificationsData?.unreadCount || 0;
-        if (__DEV__) console.log(`Initial fetch: ${itemsData?.items?.length || 0} items, ${notificationsData?.unreadCount || 0} unread`);
-      } catch (err) {
-        if (!mounted) return;
-        console.error('Error during initial fetch:', err?.response?.status, err?.response?.data || err?.message);
-        setError("Could not load items and notifications");
-      } finally {
-        if (mounted) setLoading(false);
+            const [itemsData, notificationsData] = await Promise.all([itemsPromise, notificationsPromise]);
+            cachedItems = itemsData?.items ?? [];
+            cachedNotifications = notificationsData?.notifications ?? [];
+            cachedUnreadCount = notificationsData?.unreadCount || 0;
+            cachedHomeUserId = user?.id || null;
+            cachedHomeErrorKey = null;
+            hasFetchedHomeDataOnce = true;
+            if (__DEV__) console.log(`Initial fetch: ${cachedItems.length} items, ${cachedUnreadCount} unread`);
+          } catch (err) {
+            console.error('Error during initial fetch:', err?.response?.status, err?.response?.data || err?.message);
+            cachedItems = [];
+            cachedNotifications = [];
+            cachedUnreadCount = 0;
+            cachedHomeErrorKey = 'home.loadError';
+            hasFetchedHomeDataOnce = true;
+          } finally {
+            homeDataFetchPromise = null;
+          }
+        })();
+      }
+
+      await homeDataFetchPromise;
+
+      if (mounted) {
+        applyCachedHomeData();
+        setLoading(false);
       }
     };
 
-    fetchInitialItems();
+    hydrateOnce();
 
     return () => { mounted = false; };
-  }, [getToken]);
+  }, [getToken, t, user?.id]);
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -278,7 +319,7 @@ export default function Page() {
             style={[styles.headerLogo, {resizeMode: 'contain'}]}
           />
           <View style={styles.welcomeContainer}>
-            <Text style={styles.welcomeText}>Welcome,</Text>
+            <Text style={styles.welcomeText}>{t('home.welcome')}</Text>
             <Text style={styles.usernameText}>
               {user?.emailAddresses[0]?.emailAddress.split("@")[0]}
             </Text>
@@ -289,7 +330,7 @@ export default function Page() {
           <TouchableOpacity
             style={styles.iconButtonHeader}
             onPress={() => setNotificationModalVisible(true)}
-            accessibilityLabel="Notifications"
+            accessibilityLabel={t('home.notifications')}
           >
             <Ionicons name="notifications-outline" size={24} color="#333" />
             {unreadCount > 0 && (
@@ -301,9 +342,9 @@ export default function Page() {
 
       <View style={styles.content}>
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Report Lost or Found Items</Text>
+            <Text style={styles.sectionTitle}>{t('home.reportTitle')}</Text>
             <Text style={styles.sectionSubtitle}>
-              Help others find their lost items or report items you&apos;ve found.
+              {t('home.reportSubtitle')}
             </Text>
             
             <View style={styles.quickActions}>
@@ -312,7 +353,7 @@ export default function Page() {
                 onPress={() => router.push('/(modals)/report-lost')}
               >
                 <Ionicons name="search" size={24} color="#1976D2" />
-                <Text style={[styles.quickActionText, { color: '#1976D2' }]}>I Lost Something</Text>
+                <Text style={[styles.quickActionText, { color: '#1976D2' }]}>{t('home.lostCta')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
@@ -320,14 +361,14 @@ export default function Page() {
                 onPress={() => router.push('/(modals)/report-found')}
               >
                 <Ionicons name="eye" size={24} color="#2E7D32" />
-                <Text style={[styles.quickActionText, { color: '#2E7D32' }]}>I Found Something</Text>
+                <Text style={[styles.quickActionText, { color: '#2E7D32' }]}>{t('home.foundCta')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={[styles.section, { flex: 1 }]}> 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={styles.sectionTitle}>Recent Activity</Text>
+              <Text style={styles.sectionTitle}>{t('home.recentActivity')}</Text>
               <TouchableOpacity 
                 onPress={handleRefresh}
                 disabled={refreshing}
@@ -357,13 +398,13 @@ export default function Page() {
           <Modal visible={notificationModalVisible} transparent animationType="fade" onRequestClose={() => setNotificationModalVisible(false)}>
             <Pressable style={styles.modalOverlay} onPress={() => setNotificationModalVisible(false)}>
               <Pressable style={[styles.modalContent, { width: '90%', maxHeight: '70%' }]} onPress={() => {}}>
-                <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Notifications</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 12 }}>{t('home.notifications')}</Text>
 
                 {(!notifications || notifications.length === 0) ? (
                   <View style={styles.notificationsEmpty}>
                     <Ionicons name="notifications-off" size={48} color="#CBD5E1" />
-                    <Text style={styles.notificationsEmptyTitle}>No notifications</Text>
-                    <Text style={styles.notificationsEmptySubtitle}>You are all caught up.</Text>
+                    <Text style={styles.notificationsEmptyTitle}>{t('common.noData')}</Text>
+                    <Text style={styles.notificationsEmptySubtitle}>{t('home.noRecentActivity')}</Text>
                   </View>
                 ) : (
                   <ScrollView>
@@ -386,8 +427,8 @@ export default function Page() {
                               onPress={async () => {
                                 setNotificationModalVisible(false);
                                 try {
-                                  const token = await getToken();
-                                  const api = getAuthenticatedApi(token);
+                                  const token = await getToken({ skipCache: true });
+                                  const api = getAuthenticatedApi(token, getToken);
                                   
                                   // Get the matched item document using the two item IDs
                                   const matchedItemResponse = await api.getMatchedItemByItems(
@@ -409,16 +450,16 @@ export default function Page() {
                                     pathname: '/chat-conversation',
                                     params: {
                                       chatId: chatResponse.chat._id,
-                                      otherUserName: otherUser?.name || otherUser?.email?.split('@')[0] || 'User'
+                                      otherUserName: otherUser?.name || otherUser?.email?.split('@')[0] || t('chat.user')
                                     }
                                   });
                                 } catch (err) {
                                   console.error('Error opening chat:', err);
-                                  alert('Failed to open chat. Please try again.');
+                                  alert(t('chat.sendError'));
                                 }
                               }}
                             >
-                              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Chat</Text>
+                              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>{t('nav.chat')}</Text>
                             </TouchableOpacity>
                           )}
                         </View>
@@ -429,7 +470,7 @@ export default function Page() {
 
                 <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
                   <TouchableOpacity onPress={() => setNotificationModalVisible(false)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                    <Text style={{ color: '#0F172A', fontWeight: '600' }}>Close</Text>
+                    <Text style={{ color: '#0F172A', fontWeight: '600' }}>{t('common.close')}</Text>
                   </TouchableOpacity>
                 </View>
               </Pressable>

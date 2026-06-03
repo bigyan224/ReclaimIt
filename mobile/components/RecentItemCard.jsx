@@ -4,9 +4,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
 import { getAuthenticatedApi } from "../services/api";
+import { useI18n } from "../i18n/I18nProvider";
 
-export default function RecentItemCard({ item }) {
+export default function RecentItemCard({ item, onDelete }) {
   const router = useRouter();
+  const { t } = useI18n();
   const isFound = item.type === "FOUND";
 
   const getLocationLabel = () => {
@@ -46,7 +48,7 @@ export default function RecentItemCard({ item }) {
 
         <View style={styles.content}>
           <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.type}>{isFound ? 'FOUND ITEM' : 'LOST ITEM'}</Text>
+          <Text style={styles.type}>{isFound ? t('recent.foundItem') : t('recent.lostItem')}</Text>
 
           {locationLabel ? (
             <Text style={styles.location} numberOfLines={1}>📍 {locationLabel}</Text>
@@ -61,7 +63,7 @@ export default function RecentItemCard({ item }) {
           <TouchableOpacity
             style={styles.iconButton}
             onPress={() => setShowModal(true)}
-            accessibilityLabel="View item"
+            accessibilityLabel={t('recent.viewItem')}
           >
             <Ionicons name="eye" size={20} color={primaryColor} />
           </TouchableOpacity>
@@ -69,7 +71,7 @@ export default function RecentItemCard({ item }) {
           <TouchableOpacity
             style={[styles.iconButton, { backgroundColor: '#FFF1F2' }]}
             onPress={() => setDeleteVisible(true)}
-            accessibilityLabel="Delete item"
+            accessibilityLabel={t('recent.deleteItem')}
           >
             <Ionicons name="trash" size={20} color="#DC2626" />
           </TouchableOpacity>
@@ -96,34 +98,34 @@ export default function RecentItemCard({ item }) {
               <Text style={styles.modalTitle}>{item.name}</Text>
               <View style={styles.badgeRow}>
                 <View style={[styles.badge, { backgroundColor: primaryColor }]}>
-                  <Text style={styles.badgeText}>{isFound ? 'FOUND' : 'LOST'}</Text>
+                  <Text style={styles.badgeText}>{isFound ? t('recent.found') : t('recent.lost')}</Text>
                 </View>
                 {formattedDate && <Text style={styles.dateText}>{formattedDate}</Text>}
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Location</Text>
+                <Text style={styles.detailLabel}>{t('recent.location')}</Text>
                 <Text style={styles.detailValue}>{locationLabel || '—'}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Category</Text>
+                <Text style={styles.detailLabel}>{t('recent.category')}</Text>
                 <Text style={styles.detailValue}>{item.category || '—'}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Brand</Text>
+                <Text style={styles.detailLabel}>{t('recent.brand')}</Text>
                 <Text style={styles.detailValue}>{item.brandName || '—'}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Color</Text>
+                <Text style={styles.detailLabel}>{t('recent.color')}</Text>
                 <Text style={styles.detailValue}>{item.color || '—'}</Text>
               </View>
 
               {item.description ? (
                 <>
-                  <Text style={[styles.detailLabel, { marginTop: 12 }]}>Description</Text>
+                  <Text style={[styles.detailLabel, { marginTop: 12 }]}>{t('recent.description')}</Text>
                   <Text style={styles.description}>{item.description}</Text>
                 </>
               ) : null}
@@ -131,10 +133,10 @@ export default function RecentItemCard({ item }) {
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.actionButton} onPress={() => { setShowModal(false); router.push(`/item/${item._id}/edit`); }}>
-                <Text style={styles.actionButtonText}>Edit</Text>
+                <Text style={styles.actionButtonText}>{t('recent.edit')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionButton, styles.closeButton]} onPress={() => setShowModal(false)}>
-                <Text style={[styles.actionButtonText, styles.closeButtonText]}>Close</Text>
+                <Text style={[styles.actionButtonText, styles.closeButtonText]}>{t('recent.close')}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -150,11 +152,11 @@ export default function RecentItemCard({ item }) {
       >
         <Pressable style={styles.modalOverlay} onPress={() => { setDeleteVisible(false); setConfirmText(''); }}>
           <Pressable style={[styles.modalContent, { padding: 16 }]} onPress={() => {}}>
-            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Delete item</Text>
-            <Text style={{ color: '#475569', marginBottom: 12 }}>Type "delete" to confirm permanent deletion of this item.</Text>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>{t('recent.deleteTitle')}</Text>
+            <Text style={{ color: '#475569', marginBottom: 12 }}>{t('recent.deleteConfirmHelp')}</Text>
 
             <TextInput
-              placeholder="Type delete to confirm"
+              placeholder={t('recent.typeDelete')}
               value={confirmText}
               onChangeText={setConfirmText}
               style={{ borderWidth: 1, borderColor: '#E5E7EB', padding: 10, borderRadius: 8, marginBottom: 12 }}
@@ -163,7 +165,7 @@ export default function RecentItemCard({ item }) {
 
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#D1D5DB', marginRight: 8 }]} onPress={() => { setDeleteVisible(false); setConfirmText(''); }}>
-                <Text style={[styles.actionButtonText, { color: '#0F172A' }]}>Cancel</Text>
+                <Text style={[styles.actionButtonText, { color: '#0F172A' }]}>{t('recent.cancel')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -172,8 +174,8 @@ export default function RecentItemCard({ item }) {
                   if (confirmText.toLowerCase() !== 'delete') return;
                   try {
                     setIsDeleting(true);
-                    const token = await getToken();
-                    const api = getAuthenticatedApi(token);
+                    const token = await getToken({ skipCache: true });
+                    const api = getAuthenticatedApi(token, getToken);
                     await api.deleteItem(item._id);
                     setIsDeleting(false);
                     setDeleteVisible(false);
@@ -184,12 +186,12 @@ export default function RecentItemCard({ item }) {
                     console.error('Error deleting item:', err);
                     setIsDeleting(false);
                     // show a simple alert
-                    alert('Failed to delete item. Please try again.');
+                    alert(t('recent.deleteFailed'));
                   }
                 }}
                 disabled={confirmText.toLowerCase() !== 'delete' || isDeleting}
               >
-                {isDeleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionButtonText}>Delete</Text>}
+                {isDeleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionButtonText}>{t('recent.delete')}</Text>}
               </TouchableOpacity>
             </View>
           </Pressable>

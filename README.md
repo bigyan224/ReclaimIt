@@ -138,6 +138,11 @@ CLOUDINARY_API_SECRET=your_api_secret
 # Redis (for rate limiting)
 UPSTASH_REDIS_REST_URL=your_redis_url
 UPSTASH_REDIS_REST_TOKEN=your_redis_token
+
+# Gemini (AI item matching)
+GEMINI_API_KEY=your_gemini_api_key
+# Optional (default: gemini-2.5-flash)
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 **Mobile** - Update `mobile/app.json`:
@@ -196,26 +201,17 @@ eas build --platform ios --profile preview
 
 ## 🔑 Key Features Explained
 
-### Smart Matching Algorithm
+### Smart Matching (AI-powered)
 
-The backend automatically matches lost and found items using:
+The backend automatically sends item metadata in JSON to Gemini and receives structured match scores.
 
-1. **Geographic Scoring** (40 points)
-   - Calculates distance between lost and found locations
-   - Higher score for closer proximity
+The model considers:
 
-2. **Description Similarity** (25 points)
-   - Uses keyword matching
-   - Compares item descriptions
-
-3. **Category Match** (15 points)
-   - Exact category matching
-
-4. **Color Match** (10 points)
-   - Exact color matching
-
-5. **Brand Match** (10 points)
-   - Brand name matching
+1. **Geographic proximity**
+2. **Name and description similarity**
+3. **Category, color, and brand consistency**
+4. **Date/time plausibility**
+5. **Overall likelihood of being the same physical item**
 
 **Match Strength Levels:**
 - Strong: 70+ points

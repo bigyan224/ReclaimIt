@@ -14,11 +14,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Audio } from 'expo-av';
 import { COLORS } from '../constants/colors';
 import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuthenticatedApi } from '../services/api';
 import socketService from '../services/socket';
+import { useI18n } from '../i18n/I18nProvider';
 
 export default function ChatConversationScreen() {
   const { user } = useUser();
@@ -26,6 +28,7 @@ export default function ChatConversationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { chatId, otherUserName } = useLocalSearchParams();
+  const { t, language } = useI18n();
 
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
@@ -35,11 +38,28 @@ export default function ChatConversationScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [isOtherUserOnline, setIsOtherUserOnline] = useState(false);
+  const [recording, setRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDurationMs, setRecordingDurationMs] = useState(0);
+  const [pendingVoice, setPendingVoice] = useState(null);
+  const [sendingVoice, setSendingVoice] = useState(false);
+  const [playingMessageId, setPlayingMessageId] = useState(null);
+  const [translatedMessages, setTranslatedMessages] = useState({});
+  const [showTranslatedMessages, setShowTranslatedMessages] = useState({});
+  const [translationLoading, setTranslationLoading] = useState({});
+  const [voiceTranscripts, setVoiceTranscripts] = useState({});
+  const [showVoiceTranscript, setShowVoiceTranscript] = useState({});
+  const [transcriptionLoading, setTranscriptionLoading] = useState({});
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const markedReadRef = useRef(new Set());
   const appState = useRef(AppState.currentState);
   const onlineUsersRef = useRef(new Set()); // Track online user IDs
+  const recordingIntervalRef = useRef(null);
+  const soundRef = useRef(null);
+  const otherUserClerkIdRef = useRef(null);
+  const getTokenRef = useRef(getToken);
+  const previousMessagesCountRef = useRef(0);
 
   // Handle app state changes - disconnect socket when app goes to background
   useEffect(() => {
@@ -60,13 +80,46 @@ export default function ChatConversationScreen() {
   }, []);
 
   useEffect(() => {
-    fetchChatInfo();
-    fetchMessages();
-    
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadChatData = async () => {
+      try {
+        const token = await getTokenRef.current({ skipCache: true });
+        const api = getAuthenticatedApi(token, getTokenRef.current);
+        const [chatsResponse, messagesResponse] = await Promise.all([
+          api.getChats(),
+          api.getChatMessages(chatId),
+        ]);
+
+        if (!mounted) return;
+
+        const currentChat = chatsResponse.chats?.find((c) => c._id === chatId) || null;
+        setChatInfo(currentChat);
+        setMessages(messagesResponse.messages || []);
+      } catch (err) {
+        if (!mounted) return;
+        console.error('Error loading chat data:', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadChatData();
+
+    return () => {
+      mounted = false;
+    };
+  }, [chatId]);
+
+  useEffect(() => {
     // Connect to socket and join chat room
     const initSocket = async () => {
       try {
-        const token = await getToken();
+        const token = await getTokenRef.current();
         if (!socketService.isConnected()) {
           socketService.connect(user?.id, [chatId], token);
         } else {
@@ -108,7 +161,7 @@ export default function ChatConversationScreen() {
         if (__DEV__) console.log('🟢 User is online:', data.userId);
         onlineUsersRef.current.add(data.userId);
         
-        if (chatInfo?.otherUser?.clerkId === data.userId) {
+        if (otherUserClerkIdRef.current === data.userId) {
           if (__DEV__) console.log('👤 Other participant came online:', data.userId);
           setIsOtherUserOnline(true);
         }
@@ -120,7 +173,7 @@ export default function ChatConversationScreen() {
         if (__DEV__) console.log('🔴 User went offline:', data.userId);
         onlineUsersRef.current.delete(data.userId);
         
-        if (chatInfo?.otherUser?.clerkId === data.userId) {
+        if (otherUserClerkIdRef.current === data.userId) {
           setIsOtherUserOnline(false);
         }
       }
@@ -157,6 +210,14 @@ export default function ChatConversationScreen() {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
+
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+      }
     };
   }, [chatId, user?.id]);
 
@@ -173,43 +234,44 @@ export default function ChatConversationScreen() {
     }
   }, [messages, chatId, user?.id]);
 
+  // Auto-scroll only when message count grows (new messages), not when existing messages are expanded/translated.
+  useEffect(() => {
+    if (!messages.length) return;
+
+    if (previousMessagesCountRef.current === 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 0);
+    } else if (messages.length > previousMessagesCountRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 0);
+    }
+
+    previousMessagesCountRef.current = messages.length;
+  }, [messages.length]);
+
   // Check online status when chatInfo loads
   useEffect(() => {
-    if (chatInfo?.otherUser?.clerkId) {
-      const isOnline = onlineUsersRef.current.has(chatInfo.otherUser.clerkId);
-      if (__DEV__) console.log(`📊 Checking online status for ${chatInfo.otherUser.clerkId}: ${isOnline}`);
+    const clerkId = chatInfo?.otherUser?.clerkId || null;
+    otherUserClerkIdRef.current = clerkId;
+
+    if (clerkId) {
+      const isOnline = onlineUsersRef.current.has(clerkId);
+      if (__DEV__) console.log(`📊 Checking online status for ${clerkId}: ${isOnline}`);
       setIsOtherUserOnline(isOnline);
     }
   }, [chatInfo]);
 
-  const fetchChatInfo = async () => {
-    try {
-      const token = await getToken();
-      const api = getAuthenticatedApi(token);
-      const response = await api.getChats();
-      const currentChat = response.chats?.find(c => c._id === chatId);
-      if (currentChat) {
-        setChatInfo(currentChat);
-      }
-    } catch (err) {
-      console.error('Error fetching chat info:', err);
-    }
-  };
-
-  const fetchMessages = async () => {
-    try {
-      const token = await getToken();
-      const api = getAuthenticatedApi(token);
-      const response = await api.getChatMessages(chatId);
-      setMessages(response.messages || []);
-    } catch (err) {
-      console.error('Error fetching messages:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSend = async () => {
+    if (isRecording) return;
+
+    if (!messageText.trim() && pendingVoice?.uri) {
+      await sendVoiceRecording(pendingVoice.uri, pendingVoice.durationMs || 0);
+      setPendingVoice(null);
+      return;
+    }
+
     if (!messageText.trim()) return;
 
     const textToSend = messageText.trim();
@@ -221,8 +283,8 @@ export default function ChatConversationScreen() {
     socketService.stopTyping(chatId, user?.id);
 
     try {
-      const token = await getToken();
-      const api = getAuthenticatedApi(token);
+      const token = await getToken({ skipCache: true });
+      const api = getAuthenticatedApi(token, getToken);
       
       // Create optimistic message
       const optimisticMessage = {
@@ -267,7 +329,7 @@ export default function ChatConversationScreen() {
 
     } catch (err) {
       console.error('Error sending message:', err);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      Alert.alert(t('common.error'), t('chat.sendError'));
       setMessageText(textToSend);
       
       // Remove failed message
@@ -277,13 +339,190 @@ export default function ChatConversationScreen() {
     }
   };
 
+  const formatDuration = (durationMs) => {
+    const totalSeconds = Math.floor((durationMs || 0) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? `0${seconds}` : seconds}`;
+  };
+
+  const startRecording = async () => {
+    try {
+      const permissionResponse = await Audio.requestPermissionsAsync();
+      if (!permissionResponse.granted) {
+        Alert.alert(t('chat.microphoneNeeded'), t('chat.microphonePermissionMsg'));
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording: nextRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      // Starting a new recording replaces any unsent draft voice note.
+      setPendingVoice(null);
+
+      setRecording(nextRecording);
+      setIsRecording(true);
+      setRecordingDurationMs(0);
+
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+
+      recordingIntervalRef.current = setInterval(async () => {
+        try {
+          const status = await nextRecording.getStatusAsync();
+          if (status?.isRecording) {
+            setRecordingDurationMs(status.durationMillis || 0);
+          }
+        } catch {
+          // noop
+        }
+      }, 300);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      Alert.alert(t('common.error'), t('chat.recordingStartError'));
+      setRecording(null);
+      setIsRecording(false);
+    }
+  };
+
+  const sendVoiceRecording = async (audioUri, durationMs = 0) => {
+    if (!audioUri) return;
+
+    setSendingVoice(true);
+
+    try {
+      const token = await getToken({ skipCache: true });
+      const api = getAuthenticatedApi(token, getToken);
+      const response = await api.sendVoiceMessage(chatId, audioUri, durationMs);
+      const createdMessage = response?.message;
+
+      if (createdMessage?._id) {
+        setMessages(prev => {
+          const alreadyInList = prev.some(msg => msg._id === createdMessage._id);
+          if (alreadyInList) return prev;
+          return [...prev, createdMessage];
+        });
+
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      Alert.alert(t('common.error'), t('chat.voiceSendError'));
+    } finally {
+      setSendingVoice(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    try {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        recordingIntervalRef.current = null;
+      }
+
+      await recording.stopAndUnloadAsync();
+      const status = await recording.getStatusAsync();
+      const audioUri = recording.getURI();
+
+      setRecording(null);
+      setIsRecording(false);
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+
+      if (!audioUri) {
+        Alert.alert(t('common.error'), t('chat.voiceNotFound'));
+        return;
+      }
+
+      const finalDurationMs = status?.durationMillis || recordingDurationMs || 0;
+
+      if (finalDurationMs < 600) {
+        setRecordingDurationMs(0);
+        setPendingVoice(null);
+        return;
+      }
+
+      setPendingVoice({
+        uri: audioUri,
+        durationMs: finalDurationMs,
+      });
+      setRecordingDurationMs(0);
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      Alert.alert(t('common.error'), t('chat.recordingStartError'));
+      setRecording(null);
+      setIsRecording(false);
+    }
+  };
+
+  const discardPendingVoice = () => {
+    setPendingVoice(null);
+    if (playingMessageId === 'draft_voice') {
+      setPlayingMessageId(null);
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    }
+  };
+
+  const playVoiceMessage = async (audioUrl, messageId) => {
+    if (!audioUrl) return;
+
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      if (playingMessageId === messageId) {
+        setPlayingMessageId(null);
+        return;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUrl },
+        { shouldPlay: true }
+      );
+
+      soundRef.current = sound;
+      setPlayingMessageId(messageId);
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status?.didJustFinish) {
+          setPlayingMessageId(null);
+          sound.unloadAsync().catch(() => {});
+          soundRef.current = null;
+        }
+      });
+    } catch (error) {
+      console.error('Error playing voice message:', error);
+      Alert.alert(t('common.error'), t('chat.voiceSendError'));
+      setPlayingMessageId(null);
+    }
+  };
+
   const handleTextChange = (text) => {
     setMessageText(text);
     
     // Handle typing indicator
     if (text.trim() && !isTyping) {
       setIsTyping(true);
-      socketService.startTyping(chatId, user?.id, user?.fullName || 'User');
+      socketService.startTyping(chatId, user?.id, user?.fullName || t('chat.user'));
     }
     
     // Clear existing timeout
@@ -308,6 +547,80 @@ export default function ChatConversationScreen() {
     return `${displayHours}:${displayMinutes} ${ampm}`;
   };
 
+  const getTargetTranslateLanguage = () => (language === 'hi' ? 'hi' : 'en');
+
+  const handleTranslateTextMessage = async (item) => {
+    const messageId = item._id;
+
+    if (showTranslatedMessages[messageId]) {
+      setShowTranslatedMessages((prev) => ({ ...prev, [messageId]: false }));
+      return;
+    }
+
+    if (translatedMessages[messageId]) {
+      setShowTranslatedMessages((prev) => ({ ...prev, [messageId]: true }));
+      return;
+    }
+
+    setTranslationLoading((prev) => ({ ...prev, [messageId]: true }));
+    try {
+      const token = await getToken({ skipCache: true });
+      const api = getAuthenticatedApi(token, getToken);
+      const targetLanguage = getTargetTranslateLanguage();
+      const response = await api.translateTextMessage(chatId, messageId, targetLanguage);
+
+      const translatedText = response?.translatedText || item.content;
+      setTranslatedMessages((prev) => ({ ...prev, [messageId]: translatedText }));
+      setShowTranslatedMessages((prev) => ({ ...prev, [messageId]: true }));
+    } catch (error) {
+      console.error('Error translating message:', error);
+      Alert.alert(t('common.error'), t('chat.translateError'));
+    } finally {
+      setTranslationLoading((prev) => ({ ...prev, [messageId]: false }));
+    }
+  };
+
+  const handleTranscribeVoiceMessageEnglish = async (item) => {
+    const messageId = item._id;
+
+    if (showVoiceTranscript[messageId]) {
+      setShowVoiceTranscript((prev) => ({ ...prev, [messageId]: false }));
+      return;
+    }
+
+    if (voiceTranscripts[messageId]) {
+      setShowVoiceTranscript((prev) => ({ ...prev, [messageId]: true }));
+      return;
+    }
+
+    if (item.transcriptLanguage === 'en' && item.transcriptText) {
+      setVoiceTranscripts((prev) => ({ ...prev, [messageId]: item.transcriptText }));
+      setShowVoiceTranscript((prev) => ({ ...prev, [messageId]: true }));
+      return;
+    }
+
+    setTranscriptionLoading((prev) => ({ ...prev, [messageId]: true }));
+    try {
+      const token = await getToken({ skipCache: true });
+      const api = getAuthenticatedApi(token, getToken);
+      const response = await api.transcribeVoiceMessageEnglish(chatId, messageId);
+
+      const transcriptText = response?.transcriptText || '';
+      if (!transcriptText) {
+        Alert.alert(t('common.error'), t('chat.transcribeUnavailable'));
+        return;
+      }
+
+      setVoiceTranscripts((prev) => ({ ...prev, [messageId]: transcriptText }));
+      setShowVoiceTranscript((prev) => ({ ...prev, [messageId]: true }));
+    } catch (error) {
+      console.error('Error transcribing voice message:', error);
+      Alert.alert(t('common.error'), t('chat.transcribeError'));
+    } finally {
+      setTranscriptionLoading((prev) => ({ ...prev, [messageId]: false }));
+    }
+  };
+
   const renderMessage = ({ item }) => {
     const isMyMessage = item.sender?.clerkId === user?.id;
     // Check if message is read by counting unique users in readBy array
@@ -316,6 +629,14 @@ export default function ChatConversationScreen() {
       ? [...new Set(item.readBy)].filter(id => id !== user?.id)
       : [];
     const isRead = uniqueReadByUsers.length > 0; // At least one other person has read it
+
+    const isVoiceMessage = item.type === 'voice';
+    const translatedText = translatedMessages[item._id];
+    const isTranslationLoading = Boolean(translationLoading[item._id]);
+    const shouldShowTranslation = Boolean(showTranslatedMessages[item._id] && translatedText);
+    const transcriptText = voiceTranscripts[item._id] || (item.transcriptLanguage === 'en' ? item.transcriptText : '');
+    const isTranscriptionLoading = Boolean(transcriptionLoading[item._id]);
+    const shouldShowTranscript = Boolean(showVoiceTranscript[item._id] && transcriptText);
 
     return (
       <View
@@ -330,14 +651,83 @@ export default function ChatConversationScreen() {
             isMyMessage ? styles.myMessageBubble : styles.otherMessageBubble
           ]}
         >
-          <Text
-            style={[
-              styles.messageText,
-              isMyMessage ? styles.myMessageText : styles.otherMessageText
-            ]}
-          >
-            {item.content}
-          </Text>
+          {!isVoiceMessage && (
+            <>
+              <Text
+                style={[
+                  styles.messageText,
+                  isMyMessage ? styles.myMessageText : styles.otherMessageText
+                ]}
+              >
+                {item.content}
+              </Text>
+
+              <View style={styles.messageActionsRow}>
+                <TouchableOpacity
+                  style={[styles.messageActionButton, isMyMessage && styles.myMessageActionButton]}
+                  onPress={() => handleTranslateTextMessage(item)}
+                  disabled={isTranslationLoading}
+                >
+                  {isTranslationLoading ? (
+                    <ActivityIndicator size="small" color={isMyMessage ? '#fff' : '#334155'} />
+                  ) : (
+                    <Text style={[styles.messageActionText, isMyMessage && styles.myMessageActionText]}>
+                      {shouldShowTranslation ? t('chat.hideTranslation') : t('chat.translateButton')}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {shouldShowTranslation && (
+                <Text style={isMyMessage ? styles.translatedTextMine : styles.translatedTextOther}>
+                  {translatedText}
+                </Text>
+              )}
+            </>
+          )}
+
+          {isVoiceMessage && (
+            <View style={styles.voiceMessageWrapper}>
+              <View style={styles.voiceHeaderRow}>
+                <TouchableOpacity
+                  style={styles.voicePlayButton}
+                  onPress={() => playVoiceMessage(item.audioUrl, item._id)}
+                >
+                  <Ionicons
+                    name={playingMessageId === item._id ? 'pause' : 'play'}
+                    size={16}
+                    color="#fff"
+                  />
+                </TouchableOpacity>
+                <Text style={[styles.voiceLabel, isMyMessage ? styles.voiceLabelMine : styles.voiceLabelOther]}>
+                  {t('chat.voiceMessageLabel')} • {formatDuration((item.audioDurationSec || 0) * 1000)}
+                </Text>
+              </View>
+
+              <View style={styles.messageActionsRow}>
+                <TouchableOpacity
+                  style={[styles.messageActionButton, isMyMessage && styles.myMessageActionButton]}
+                  onPress={() => handleTranscribeVoiceMessageEnglish(item)}
+                  disabled={isTranscriptionLoading}
+                >
+                  {isTranscriptionLoading ? (
+                    <ActivityIndicator size="small" color={isMyMessage ? '#fff' : '#334155'} />
+                  ) : (
+                    <Text style={[styles.messageActionText, isMyMessage && styles.myMessageActionText]}>
+                      {shouldShowTranscript ? t('chat.hideTranscript') : t('chat.transcribeEnglishButton')}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {shouldShowTranscript && (
+                <Text style={isMyMessage ? styles.voiceTranscriptMine : styles.voiceTranscriptOther}>
+                  {transcriptText}
+                </Text>
+              )}
+            </View>
+          )}
+
           <View style={styles.messageFooter}>
             <Text
               style={[
@@ -366,10 +756,10 @@ export default function ChatConversationScreen() {
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>
-            {chatInfo?.otherUser?.name || chatInfo?.otherUser?.email?.split('@')[0] || otherUserName || 'User'}
+            {chatInfo?.otherUser?.name || chatInfo?.otherUser?.email?.split('@')[0] || otherUserName || t('chat.user')}
           </Text>
           <Text style={styles.headerSubtitle}>
-            {isOtherUserOnline ? '🟢 Online' : 'Match Conversation'}
+            {isOtherUserOnline ? `🟢 ${t('chat.online')}` : t('chat.matchConversation')}
           </Text>
         </View>
         <View style={styles.headerRight} />
@@ -391,13 +781,12 @@ export default function ChatConversationScreen() {
             renderItem={renderMessage}
             keyExtractor={(item) => item._id}
             contentContainerStyle={styles.messagesList}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Ionicons name="chatbubble-outline" size={48} color="#CBD5E1" />
-                <Text style={styles.emptyText}>Start the conversation!</Text>
+                <Text style={styles.emptyText}>{t('chat.startConversation')}</Text>
                 <Text style={styles.emptySubtext}>
-                  Coordinate with the other person to return the item.
+                  {t('chat.coordinateReturn')}
                 </Text>
               </View>
             }
@@ -405,28 +794,73 @@ export default function ChatConversationScreen() {
 
           {otherUserTyping && (
             <View style={styles.typingIndicator}>
-              <Text style={styles.typingText}>typing...</Text>
+              <Text style={styles.typingText}>{t('chat.typing')}</Text>
+            </View>
+          )}
+
+          {!!pendingVoice?.uri && (
+            <View style={styles.pendingVoiceContainer}>
+              <TouchableOpacity
+                style={styles.pendingVoicePlayButton}
+                onPress={() => playVoiceMessage(pendingVoice.uri, 'draft_voice')}
+              >
+                <Ionicons
+                  name={playingMessageId === 'draft_voice' ? 'pause' : 'play'}
+                  size={16}
+                  color="#fff"
+                />
+              </TouchableOpacity>
+              <Text style={styles.pendingVoiceText}>
+                {t('chat.voiceNoteReady')} • {formatDuration(pendingVoice.durationMs)}
+              </Text>
+              <TouchableOpacity onPress={discardPendingVoice} style={styles.pendingVoiceDeleteButton}>
+                <Ionicons name="trash-outline" size={18} color="#b91c1c" />
+              </TouchableOpacity>
             </View>
           )}
 
           <View style={[styles.inputContainer, { paddingBottom: insets.bottom || 16 }]}>
+            <TouchableOpacity
+              style={[
+                styles.micButton,
+                isRecording && styles.micButtonActive,
+                sendingVoice && styles.micButtonDisabled
+              ]}
+              onPress={isRecording ? stopRecording : startRecording}
+              disabled={sendingVoice}
+            >
+              <Ionicons
+                name={isRecording ? 'stop' : 'mic'}
+                size={20}
+                color="#fff"
+              />
+            </TouchableOpacity>
+
             <TextInput
               style={styles.input}
-              placeholder="Type a message..."
+              placeholder={pendingVoice?.uri ? t('chat.placeholderWithVoice') : t('chat.placeholderTypeMessage')}
               value={messageText}
               onChangeText={handleTextChange}
               multiline
               maxLength={2000}
+              editable={!isRecording && !sendingVoice}
             />
+
+            {isRecording && (
+              <View style={styles.recordingBadge}>
+                <Text style={styles.recordingText}>{t('chat.recording')} {formatDuration(recordingDurationMs)}</Text>
+              </View>
+            )}
+
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                (!messageText.trim() || sending) && styles.sendButtonDisabled
+                ((!messageText.trim() && !pendingVoice?.uri) || sending || isRecording || sendingVoice) && styles.sendButtonDisabled
               ]}
               onPress={handleSend}
-              disabled={!messageText.trim() || sending}
+              disabled={(!messageText.trim() && !pendingVoice?.uri) || sending || isRecording || sendingVoice}
             >
-              {sending ? (
+              {sending || sendingVoice ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Ionicons name="send" size={20} color="#fff" />
@@ -503,7 +937,7 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginBottom: 12,
-    maxWidth: '80%',
+    maxWidth: '92%',
   },
   myMessageContainer: {
     alignSelf: 'flex-end',
@@ -512,8 +946,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   messageBubble: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 16,
+    overflow: 'hidden',
   },
   myMessageBubble: {
     backgroundColor: COLORS.primary,
@@ -529,6 +965,45 @@ const styles = StyleSheet.create({
   },
   myMessageText: {
     color: '#fff',
+  },
+
+  messageActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+  },
+  messageActionButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'flex-start',
+  },
+  myMessageActionButton: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  messageActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  myMessageActionText: {
+    color: '#fff',
+  },
+  translatedTextMine: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 20,
+    opacity: 0.95,
+  },
+  translatedTextOther: {
+    color: '#0F172A',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 20,
   },
 
   messageFooter: {
@@ -573,6 +1048,33 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     marginRight: 8,
   },
+  micButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  micButtonActive: {
+    backgroundColor: '#dc2626',
+  },
+  micButtonDisabled: {
+    opacity: 0.6,
+  },
+  recordingBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#fee2e2',
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  recordingText: {
+    color: '#991b1b',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   sendButton: {
     width: 40,
     height: 40,
@@ -593,5 +1095,83 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
+  },
+  pendingVoiceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: '#eef2ff',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  pendingVoicePlayButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#1e293b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  pendingVoiceText: {
+    flex: 1,
+    color: '#1e3a8a',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pendingVoiceDeleteButton: {
+    marginLeft: 10,
+    padding: 4,
+  },
+  voiceMessageWrapper: {
+    width: '100%',
+    alignItems: 'stretch',
+    marginTop: 2,
+  },
+  voiceHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  voicePlayButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  voiceLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 0,
+    marginRight: 4,
+    flexShrink: 1,
+  },
+  voiceLabelMine: {
+    color: '#fff',
+  },
+  voiceLabelOther: {
+    color: '#0f172a',
+  },
+  voiceTranscriptMine: {
+    color: '#f8fafc',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 20,
+    width: '100%',
+    flexShrink: 1,
+  },
+  voiceTranscriptOther: {
+    color: '#0f172a',
+    fontSize: 14,
+    marginTop: 8,
+    lineHeight: 20,
+    width: '100%',
+    flexShrink: 1,
   },
 });

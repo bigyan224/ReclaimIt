@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useUser, useAuth } from '@clerk/clerk-expo';
@@ -7,13 +7,16 @@ import { BottomNavBar } from '../components/BottomNavBar';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useI18n } from '../i18n/I18nProvider';
 
 export default function ProfileScreen() {
   const { user } = useUser();
   const { signOut } = useAuth();
   const [image, setImage] = useState(null);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const router = useRouter();
-    const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets();
+  const { t, language, setLanguage } = useI18n();
   
 
   const pickImage = async () => {
@@ -21,7 +24,7 @@ export default function ProfileScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Sorry, we need camera roll permissions to upload images.');
+      Alert.alert(t('profile.permissionRequired'), t('profile.cameraPermissionMsg'));
       return;
     }
 
@@ -44,7 +47,7 @@ const handleSignOut = async () => {
     router.replace('/sign-in');
   } catch (error) {
     console.error('Error signing out:', error);
-    Alert.alert('Error', 'Failed to sign out. Please try again.');
+    Alert.alert(t('common.error'), t('profile.signOutFailed'));
   }
 };
 
@@ -52,7 +55,7 @@ const handleSignOut = async () => {
            <View style={[styles.container, { paddingBottom: insets.bottom }]}>
     
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{t('profile.title')}</Text>
       </View>
 
       <View style={styles.profileContainer}>
@@ -81,35 +84,40 @@ const handleSignOut = async () => {
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Items Found</Text>
+            <Text style={styles.statLabel}>{t('profile.itemsFound')}</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Items Lost</Text>
+            <Text style={styles.statLabel}>{t('profile.itemsLost')}</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Matches</Text>
+            <Text style={styles.statLabel}>{t('profile.matches')}</Text>
           </View>
         </View>
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => setLanguageModalVisible(true)}>
           <Ionicons name="settings-outline" size={24} color="#333" />
-          <Text style={styles.menuText}>Settings</Text>
+          <View style={styles.menuTextWrap}>
+            <Text style={styles.menuText}>{t('profile.appLanguage')}</Text>
+            <Text style={styles.menuSubText}>
+              {t('profile.currentLanguage', { language: language === 'hi' ? t('common.hindi') : t('common.english') })}
+            </Text>
+          </View>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.menuItem}>
           <Ionicons name="help-circle-outline" size={24} color="#333" />
-          <Text style={styles.menuText}>Help & Support</Text>
+          <Text style={styles.menuText}>{t('profile.helpSupport')}</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.menuItem}>
           <Ionicons name="information-circle-outline" size={24} color="#333" />
-          <Text style={styles.menuText}>About</Text>
+          <Text style={styles.menuText}>{t('profile.about')}</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
@@ -118,9 +126,48 @@ const handleSignOut = async () => {
           onPress={handleSignOut}
         >
           <Ionicons name="log-out-outline" size={24} color="#E74C3C" />
-          <Text style={[styles.menuText, styles.logoutText]}>Sign Out</Text>
+          <Text style={[styles.menuText, styles.logoutText]}>{t('profile.signOut')}</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={languageModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLanguageModalVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setLanguageModalVisible(false)}>
+          <Pressable style={styles.modalContent} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{t('common.chooseLanguage')}</Text>
+
+            <TouchableOpacity
+              style={styles.languageOption}
+              onPress={() => {
+                setLanguage('en');
+                setLanguageModalVisible(false);
+              }}
+            >
+              <Text style={styles.languageOptionText}>{t('common.english')}</Text>
+              {language === 'en' ? <Ionicons name="checkmark-circle" size={22} color="#4A90E2" /> : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.languageOption}
+              onPress={() => {
+                setLanguage('hi');
+                setLanguageModalVisible(false);
+              }}
+            >
+              <Text style={styles.languageOptionText}>{t('common.hindi')}</Text>
+              {language === 'hi' ? <Ionicons name="checkmark-circle" size={22} color="#4A90E2" /> : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setLanguageModalVisible(false)}>
+              <Text style={styles.closeModalText}>{t('common.close')}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <BottomNavBar activeTab="profile" />
     </View>
@@ -225,10 +272,17 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f0f0f0',
   },
   menuText: {
-    flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  menuTextWrap: {
+    flex: 1,
     marginLeft: 16,
+  },
+  menuSubText: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#6B7280',
   },
   logoutButton: {
     marginTop: 8,
@@ -236,5 +290,47 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: '#E74C3C',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(2,6,23,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  languageOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  languageOptionText: {
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  closeModalButton: {
+    marginTop: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+  },
+  closeModalText: {
+    color: '#334155',
+    fontWeight: '600',
   },
 });

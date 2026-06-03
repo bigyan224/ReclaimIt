@@ -8,16 +8,30 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../constants/colors";
 import { API_URL } from "../../config/env";
 import * as WebBrowser from 'expo-web-browser';
+import { useI18n } from "../../i18n/I18nProvider";
 
 // Required for OAuth in Expo
 WebBrowser.maybeCompleteAuthSession();
 
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function Page() {
-      const { getToken } = useAuth();
+  const { getToken } = useAuth();
   const { signIn, setActive, isLoaded } = useSignIn();
   const router = useRouter();
+  const { t } = useI18n();
   
   const { startOAuthFlow: googleAuth } = useOAuth({ strategy: 'oauth_google' });
+
+  const getFreshBackendToken = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = await getToken({ skipCache: true });
+      if (token) return token;
+      await wait(250);
+    }
+
+    return null;
+  };
 
   const startGoogleSignIn = async () => {
     try {
@@ -26,7 +40,8 @@ export default function Page() {
       if (createdSessionId) {
         await setActive({ session: createdSessionId });
 
-        const token = await getToken();
+        await wait(250);
+        const token = await getFreshBackendToken();
         console.log('🔑 Got token for OAuth user, syncing to backend...');
 
         try {
@@ -54,7 +69,7 @@ export default function Page() {
       }
     } catch (err) {
       console.error('OAuth error', err);
-      setError('Failed to sign in with Google. Please try again.');
+      setError(t('auth.googleSignInFailed'));
     }
   };
 
@@ -79,7 +94,8 @@ export default function Page() {
         await setActive({ session: signInAttempt.createdSessionId });
         
         // Sync user to backend
-        const token = await getToken();
+        await wait(250);
+        const token = await getFreshBackendToken();
         if (token) {
           await fetch(`${API_URL}/users`, {
             method: "POST",
@@ -98,9 +114,9 @@ export default function Page() {
       }
     } catch (err) {
       if (err.errors?.[0]?.code === "form_password_incorrect") {
-        setError("Password is incorrect. Please try again.");
+        setError(t('auth.passwordIncorrect'));
       } else {
-        setError("An error occurred. Please try again.");
+        setError(t('auth.authError'));
       }
     }
   };
@@ -115,7 +131,7 @@ export default function Page() {
     >
       <View style={styles.container}>
         <Image source={require("../../assets/images/3372415.png")} style={styles.illustration} />
-        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.title}>{t('auth.welcomeBack')}</Text>
 
         {error ? (
           <View style={styles.errorBox}>
@@ -131,7 +147,7 @@ export default function Page() {
           style={[styles.input, error && styles.errorInput]}
           autoCapitalize="none"
           value={emailAddress}
-          placeholder="Enter email"
+          placeholder={t('auth.enterEmail')}
           placeholderTextColor="#9A8478"
           onChangeText={(emailAddress) => setEmailAddress(emailAddress)}
         />
@@ -139,7 +155,7 @@ export default function Page() {
         <TextInput
           style={[styles.input, error && styles.errorInput]}
           value={password}
-          placeholder="Enter password"
+          placeholder={t('auth.enterPassword')}
           placeholderTextColor="#9A8478"
           secureTextEntry={true}
           onChangeText={(password) => setPassword(password)}
@@ -152,25 +168,25 @@ export default function Page() {
             source={require('../../assets/images/google.png')} 
             style={{ width: 20, height: 20, marginRight: 10 }} 
           />
-          <Text style={[styles.buttonText, { color: 'black' }]}>Sign in with Google</Text>
+          <Text style={[styles.buttonText, { color: 'black' }]}>{t('auth.signInGoogle')}</Text>
         </TouchableOpacity>
 
         <View style={styles.dividerContainer}>
           <View style={styles.divider} />
-          <Text style={styles.dividerText}>OR</Text>
+          <Text style={styles.dividerText}>{t('auth.or')}</Text>
           <View style={styles.divider} />
         </View>
 
         <TouchableOpacity style={styles.button} onPress={onSignInPress}>
-          <Text style={styles.buttonText}>Sign In</Text>
+          <Text style={styles.buttonText}>{t('auth.signIn')}</Text>
         </TouchableOpacity>
 
         <View style={styles.footerContainer}>
-          <Text style={styles.footerText}>Don&apos;t have an account?</Text>
+          <Text style={styles.footerText}>{t('auth.noAccount')}</Text>
 
           <Link href="/sign-up" asChild>
             <TouchableOpacity>
-              <Text style={styles.linkText}>Sign up</Text>
+              <Text style={styles.linkText}>{t('auth.signUp')}</Text>
             </TouchableOpacity>
           </Link>
         </View>

@@ -14,21 +14,26 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "ReclaimIt uses your microphone to record and send voice messages in chat."
+      }
     },
     "extra": {
-      "EXPO_PUBLIC_API_URL": "http://192.168.1.39:5001/api",
+      "EXPO_PUBLIC_API_URL": "http://192.168.16.103:5001/api",
       "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
       "router": {},
       "eas": {
         "projectId": "6e6249f0-7d11-4c5e-896d-19f3724ef45b"
       }
     },
+
     "android": {
       "permissions": [
         "INTERNET",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",

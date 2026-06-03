@@ -48,24 +48,10 @@ const MatchedItemSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Detailed breakdown of the match score
+    // Detailed AI output for match scoring
     breakdown: {
-      title: {
-        similarity: Number,
-        score: Number,
-      },
-      color: {
-        similarity: Number,
-        score: Number,
-      },
-      brand: {
-        similarity: Number,
-        score: Number,
-      },
-      category: {
-        match: Boolean,
-        score: Number,
-      },
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
 
     // Distance between items in km

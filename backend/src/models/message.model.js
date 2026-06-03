@@ -26,16 +26,41 @@ const MessageSchema = new mongoose.Schema(
       maxlength: 2000,
     },
 
-    // Message type (text, image, system)
+    // Message type (text, image, voice, system)
     type: {
       type: String,
-      enum: ["text", "image", "system"],
+      enum: ["text", "image", "voice", "system"],
       default: "text",
     },
 
     // Optional image URL for image messages
     imageUrl: {
       type: String,
+    },
+
+    // Optional voice metadata for voice messages
+    audioUrl: {
+      type: String,
+    },
+    audioPublicId: {
+      type: String,
+    },
+    audioDurationSec: {
+      type: Number,
+      min: 0,
+    },
+    audioMimeType: {
+      type: String,
+    },
+    transcriptText: {
+      type: String,
+      trim: true,
+      maxlength: 4000,
+    },
+    transcriptLanguage: {
+      type: String,
+      enum: ["en", "hi", "unknown"],
+      default: "unknown",
     },
 
     // Read status - array of user IDs who have read this message

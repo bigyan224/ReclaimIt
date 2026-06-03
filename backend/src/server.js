@@ -31,6 +31,9 @@ const io = new Server(server, {
   allowEIO3: true
 });
 
+// Allow controllers to broadcast socket events
+app.set("io", io);
+
 // Setup Socket.io handlers
 setupSocketHandlers(io);
 

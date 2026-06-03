@@ -9,17 +9,31 @@ import { Image } from "expo-image";
 import { API_URL } from "../../config/env";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as WebBrowser from 'expo-web-browser';
+import { useI18n } from "../../i18n/I18nProvider";
 
 // Required for OAuth in Expo
 WebBrowser.maybeCompleteAuthSession();
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function SignUpScreen() {
 
   const { isLoaded, signUp, setActive } = useSignUp();
   const { getToken } = useAuth();
   const router = useRouter();
+  const { t } = useI18n();
 
   const { startOAuthFlow: googleAuth } = useOAuth({ strategy: 'oauth_google' });
+
+  const getFreshBackendToken = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = await getToken({ skipCache: true });
+      if (token) return token;
+      await wait(250);
+    }
+
+    return null;
+  };
 
   const startGoogleSignIn = async () => {
     try {
@@ -28,7 +42,8 @@ export default function SignUpScreen() {
       if (createdSessionId) {
         await setActive({ session: createdSessionId });
 
-        const token = await getToken();
+        await wait(250);
+        const token = await getFreshBackendToken();
         console.log('🔑 Got token for OAuth user, syncing to backend...');
 
         try {
@@ -56,7 +71,7 @@ export default function SignUpScreen() {
       }
     } catch (err) {
       console.error('OAuth error', err);
-      setError('Failed to sign in with Google. Please try again.');
+      setError(t('auth.googleSignInFailed'));
     }
   };
 
@@ -91,9 +106,9 @@ export default function SignUpScreen() {
       setPendingVerification(true);
     } catch (err) {
       if (err.errors?.[0]?.code === "form_identifier_exists") {
-        setError("That email address is already in use. Please try another.");
+        setError(t('auth.emailInUse'));
       } else {
-        setError("An error occurred. Please try again.");
+        setError(t('auth.authError'));
       }
       console.log(err);
     }
@@ -114,7 +129,8 @@ export default function SignUpScreen() {
       if (signUpAttempt.status === "complete") {
   await setActive({ session: signUpAttempt.createdSessionId });
 
-  const token = await getToken();
+  await wait(250);
+  const token = await getFreshBackendToken();
   if (!token) throw new Error("No token");
 
   // Split name
@@ -149,11 +165,11 @@ export default function SignUpScreen() {
  else {
         // If the status is not complete, check why. User may need to
         // complete further steps.
-        setError('Verification incomplete. Please try again.');
+        setError(t('auth.verificationIncomplete'));
         console.error(JSON.stringify(signUpAttempt, null, 2));
       }
     } catch (err) {
-      setError(err.message || 'Verification failed. Please try again.');
+      setError(err.message || t('auth.verificationFailed'));
       console.error('Verification error:', err);
     } finally {
       setIsSubmitting(false);
@@ -163,7 +179,7 @@ export default function SignUpScreen() {
   if (pendingVerification) {
     return (
       <View style={styles.verificationContainer}>
-        <Text style={styles.verificationTitle}>Verify your email</Text>
+        <Text style={styles.verificationTitle}>{t('auth.verifyEmail')}</Text>
 
         {error ? (
           <View style={styles.errorBox}>
@@ -178,13 +194,13 @@ export default function SignUpScreen() {
         <TextInput
           style={[styles.verificationInput, error && styles.errorInput]}
           value={code}
-          placeholder="Enter your verification code"
+          placeholder={t('auth.verifyCodePlaceholder')}
           placeholderTextColor="#9A8478"
           onChangeText={(code) => setCode(code)}
         />
 
         <TouchableOpacity onPress={onVerifyPress} style={styles.button} disabled={isSubmitting}>
-          <Text style={styles.buttonText}>{isSubmitting ? 'Verifying...' : 'Verify'}</Text>
+          <Text style={styles.buttonText}>{isSubmitting ? t('auth.verifying') : t('auth.verify')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -200,7 +216,7 @@ export default function SignUpScreen() {
       <View style={styles.container}>
         <Image source={require("../../assets/images/3d-traveller-character-pointing-to-empty-phone-screen-free-png.png")} style={styles.illustration} />
 
-        <Text style={styles.title}>Create Account</Text>
+  <Text style={styles.title}>{t('auth.createAccount')}</Text>
 
         {error ? (
           <View style={styles.errorBox}>
@@ -217,14 +233,14 @@ export default function SignUpScreen() {
           autoCapitalize="none"
           value={emailAddress}
           placeholderTextColor="#9A8478"
-          placeholder="Enter email"
+          placeholder={t('auth.enterEmail')}
           onChangeText={(email) => setEmailAddress(email)}
         />
 
         <TextInput
           style={[styles.input, error && styles.errorInput]}
           value={fullName}
-          placeholder="Enter full name"
+          placeholder={t('auth.enterFullName')}
           placeholderTextColor="#9A8478"
           onChangeText={(name) => setFullName(name)}
         />
@@ -232,7 +248,7 @@ export default function SignUpScreen() {
         <TextInput
           style={[styles.input, error && styles.errorInput]}
           value={password}
-          placeholder="Enter password"
+          placeholder={t('auth.enterPassword')}
           placeholderTextColor="#9A8478"
           secureTextEntry={true}
           onChangeText={(password) => setPassword(password)}
@@ -245,17 +261,17 @@ export default function SignUpScreen() {
             source={require('../../assets/images/google.png')} 
             style={{ width: 20, height: 20, marginRight: 10 }} 
           />
-          <Text style={[styles.buttonText, { color: 'black' }]}>Sign in with Google</Text>
+          <Text style={[styles.buttonText, { color: 'black' }]}>{t('auth.signInGoogle')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.button} onPress={onSignUpPress}>
-          <Text style={styles.buttonText}>Sign Up</Text>
+          <Text style={styles.buttonText}>{t('auth.signUp')}</Text>
         </TouchableOpacity>
 
         <View style={styles.footerContainer}>
-          <Text style={styles.footerText}>Already have an account?</Text>
+          <Text style={styles.footerText}>{t('auth.hasAccount')}</Text>
           <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.linkText}>Sign in</Text>
+            <Text style={styles.linkText}>{t('auth.signIn')}</Text>
           </TouchableOpacity>
         </View>
       </View>

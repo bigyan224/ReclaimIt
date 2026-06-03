@@ -1,7 +1,8 @@
 import Item from "../models/item.model.js";
 import MatchedItem from "../models/matchedItem.model.js";
-import User from "../models/user.model.js";
 import Notification from "../models/notification.model.js";
+import { scoreCandidatesWithGemini } from "../services/geminiMatching.js";
+import { scoreCandidatesWithLocalMatcher } from "../services/localMatcher.js";
 import { getOrCreateUser } from "../utils/userSync.js";
 
 // Simple configuration
@@ -13,49 +14,6 @@ const MIN_MATCH_SCORE = 40; // Out of 100
 const MATCH_STRONG = 70;   // 70+ = strong match
 const MATCH_MEDIUM = 50;   // 50-69 = medium match
 // 40-49 = weak match
-
-// Simple string similarity using Levenshtein distance
-function stringSimilarity(str1, str2) {
-  if (!str1 || !str2) return 0;
-  
-  const s1 = str1.toLowerCase().trim();
-  const s2 = str2.toLowerCase().trim();
-  
-  if (s1 === s2) return 1;
-  
-  const distance = levenshteinDistance(s1, s2);
-  const maxLen = Math.max(s1.length, s2.length);
-  
-  return maxLen === 0 ? 0 : (maxLen - distance) / maxLen;
-}
-
-function levenshteinDistance(str1, str2) {
-  const matrix = [];
-  
-  for (let i = 0; i <= str2.length; i++) {
-    matrix[i] = [i];
-  }
-  
-  for (let j = 0; j <= str1.length; j++) {
-    matrix[0][j] = j;
-  }
-  
-  for (let i = 1; i <= str2.length; i++) {
-    for (let j = 1; j <= str1.length; j++) {
-      if (str2[i - 1] === str1[j - 1]) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  
-  return matrix[str2.length][str1.length];
-}
 
 // Calculate distance between two coordinates (Haversine formula)
 function calculateDistance(coords1, coords2) {
@@ -82,55 +40,184 @@ function getMatchStrength(score) {
   return "weak";
 }
 
-// Calculate match score - simple and straightforward
-function calculateScore(item, candidate) {
-  let score = 0;
-  const breakdown = {};
-
-  // 1. Title similarity (35 points) - Most important
-  const titleSim = stringSimilarity(item.itemName, candidate.itemName);
-  const titleScore = titleSim * 35;
-  score += titleScore;
-  breakdown.title = { 
-    similarity: titleSim.toFixed(2), 
-    score: titleScore.toFixed(2) 
-  };
-
-  // 2. Color similarity (25 points) - Very important
-  if (item.color && candidate.color) {
-    const colorSim = stringSimilarity(item.color, candidate.color);
-    const colorScore = colorSim * 25;
-    score += colorScore;
-    breakdown.color = { 
-      similarity: colorSim.toFixed(2), 
-      score: colorScore.toFixed(2) 
+function buildCandidatesWithDistance(sourceCoords, candidates) {
+  return candidates.map((candidate) => {
+    const candCoords = candidate.location?.coordinates?.coordinates;
+    const distanceKm = candCoords ? calculateDistance(sourceCoords, candCoords) : null;
+    return {
+      item: candidate,
+      distanceKm,
     };
+  });
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function tokenize(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) return [];
+  return normalized.split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function jaccardSimilarity(a, b) {
+  const setA = new Set(tokenize(a));
+  const setB = new Set(tokenize(b));
+
+  if (setA.size === 0 || setB.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of setA) {
+    if (setB.has(token)) intersection += 1;
   }
 
-  // 3. Brand similarity (20 points) - Important if provided
-  if (item.brandName && candidate.brandName) {
-    const brandSim = stringSimilarity(item.brandName, candidate.brandName);
-    const brandScore = brandSim * 20;
-    score += brandScore;
-    breakdown.brand = { 
-      similarity: brandSim.toFixed(2), 
-      score: brandScore.toFixed(2) 
+  const union = new Set([...setA, ...setB]).size;
+  return union > 0 ? intersection / union : 0;
+}
+
+function equalsNormalized(a, b) {
+  const left = normalizeText(a);
+  const right = normalizeText(b);
+  return Boolean(left && right && left === right);
+}
+
+function getTimeProximityScore(sourceDate, candidateDate) {
+  if (!sourceDate || !candidateDate) return 0;
+
+  const sourceTs = new Date(sourceDate).getTime();
+  const candidateTs = new Date(candidateDate).getTime();
+  if (!Number.isFinite(sourceTs) || !Number.isFinite(candidateTs)) return 0;
+
+  const diffHours = Math.abs(sourceTs - candidateTs) / (1000 * 60 * 60);
+  if (diffHours <= 24) return 5;
+  if (diffHours <= 72) return 3;
+  if (diffHours <= 168) return 1;
+  return 0;
+}
+
+function getDistanceProximityScore(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return 0;
+  if (distanceKm <= 1) return 5;
+  if (distanceKm <= 5) return 4;
+  if (distanceKm <= 10) return 3;
+  if (distanceKm <= 20) return 2;
+  return 0;
+}
+
+function scoreCandidatesWithRuleFallback(item, candidatesWithDistance) {
+  return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+    let score = 0;
+    const reasoning = [];
+
+    const nameSimilarity = jaccardSimilarity(item.itemName, candidate.itemName);
+    const descriptionSimilarity = jaccardSimilarity(item.description, candidate.description);
+
+    if (nameSimilarity > 0) {
+      const nameScore = nameSimilarity * 30;
+      score += nameScore;
+      reasoning.push(`Name similarity ${Math.round(nameSimilarity * 100)}%`);
+    }
+
+    if (descriptionSimilarity > 0) {
+      const descriptionScore = descriptionSimilarity * 20;
+      score += descriptionScore;
+      reasoning.push(`Description similarity ${Math.round(descriptionSimilarity * 100)}%`);
+    }
+
+    if (equalsNormalized(item.category, candidate.category)) {
+      score += 15;
+      reasoning.push("Same category");
+    }
+
+    if (equalsNormalized(item.color, candidate.color)) {
+      score += 15;
+      reasoning.push("Same color");
+    }
+
+    if (equalsNormalized(item.brandName, candidate.brandName)) {
+      score += 10;
+      reasoning.push("Same brand");
+    }
+
+    const timeScore = getTimeProximityScore(item.dateTime, candidate.dateTime);
+    if (timeScore > 0) {
+      score += timeScore;
+      reasoning.push("Close report time");
+    }
+
+    const distanceScore = getDistanceProximityScore(distanceKm);
+    if (distanceScore > 0) {
+      score += distanceScore;
+      reasoning.push("Close location");
+    }
+
+    const matchScore = Math.round(clamp(score, 0, 100) * 100) / 100;
+    const confidence = Math.round(clamp(0.35 + matchScore / 200, 0.35, 0.85) * 100) / 100;
+
+    return {
+      candidateId: String(candidate._id),
+      matchScore,
+      confidence,
+      reasoning: reasoning.length > 0 ? reasoning : ["Fallback scoring: insufficient overlapping signals"],
+      provider: "rule-based-fallback",
     };
+  });
+}
+
+async function scoreCandidatesForItem(item, candidatesWithDistance) {
+  let aiScores;
+  let provider = "local-python-matcher";
+
+  try {
+    aiScores = await scoreCandidatesWithLocalMatcher({
+      sourceItem: item,
+      candidates: candidatesWithDistance,
+    });
+  } catch (localMatcherError) {
+    console.error("Local matcher unavailable, trying Gemini:", localMatcherError?.message || localMatcherError);
+    provider = "gemini";
+
+    try {
+      aiScores = await scoreCandidatesWithGemini({
+        sourceItem: item,
+        candidates: candidatesWithDistance,
+      });
+    } catch (geminiError) {
+      console.error("Gemini scoring unavailable, using rule-based fallback:", geminiError?.message || geminiError);
+      provider = "rule-based-fallback";
+      aiScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
+    }
   }
 
-  // 4. Category (20 points if exact match, 5 points otherwise)
-  const categoryMatch = item.category?.toLowerCase() === candidate.category?.toLowerCase();
-  const categoryScore = categoryMatch ? 20 : 5;
-  score += categoryScore;
-  breakdown.category = { 
-    match: categoryMatch, 
-    score: categoryScore 
-  };
+  const scoreByCandidateId = new Map(
+    aiScores.map((score) => [String(score.candidateId), score])
+  );
 
-  return {
-    totalScore: Math.round(score * 100) / 100,
-    breakdown
-  };
+  return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+    const aiScore = scoreByCandidateId.get(String(candidate._id)) || {
+      matchScore: 0,
+      confidence: 0,
+      reasoning: [`No ${provider} score returned`],
+      provider,
+    };
+
+    return {
+      candidate,
+      score: aiScore.matchScore,
+      confidence: aiScore.confidence,
+      breakdown: {
+        provider: aiScore.provider || provider,
+        confidence: aiScore.confidence,
+        reasoning: aiScore.reasoning,
+      },
+      distanceKm,
+    };
+  });
 }
 
 // Find matches for a specific item
@@ -173,19 +260,17 @@ export const findMatches = async (req, res) => {
       }
     }).limit(100);
 
+    const candidatesWithDistance = buildCandidatesWithDistance(itemCoords, candidates);
+    const scoredCandidates = await scoreCandidatesForItem(item, candidatesWithDistance);
+
     // Calculate scores for all candidates
-    const matches = candidates.map(candidate => {
-      const candCoords = candidate.location?.coordinates?.coordinates;
-      const distance = candCoords ? calculateDistance(itemCoords, candCoords) : null;
-      
-      const scoring = calculateScore(item, candidate);
-      
+    const matches = scoredCandidates.map(({ candidate, score, breakdown, distanceKm }) => {
       return {
         item: candidate,
-        matchScore: scoring.totalScore,
-        matchStrength: getMatchStrength(scoring.totalScore),
-        breakdown: scoring.breakdown,
-        distanceKm: distance ? distance.toFixed(2) : null
+        matchScore: score,
+        matchStrength: getMatchStrength(score),
+        breakdown,
+        distanceKm: distanceKm ? distanceKm.toFixed(2) : null,
       };
     });
 
@@ -277,17 +362,17 @@ export const getMyItemMatches = async (req, res) => {
         }
       }).limit(50);
 
+      const candidatesWithDistance = buildCandidatesWithDistance(itemCoords, candidates);
+      const scoredCandidates = await scoreCandidatesForItem(item, candidatesWithDistance);
+
       // Score and filter
-      const topMatches = candidates
-        .map(candidate => {
-          const scoring = calculateScore(item, candidate);
-          return {
-            candidate,
-            score: scoring.totalScore,
-            matchStrength: getMatchStrength(scoring.totalScore),
-            breakdown: scoring.breakdown
-          };
-        })
+      const topMatches = scoredCandidates
+        .map(({ candidate, score, breakdown }) => ({
+          candidate,
+          score,
+          matchStrength: getMatchStrength(score),
+          breakdown,
+        }))
         .filter(m => m.score >= MIN_MATCH_SCORE)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5); // Top 5 per item
@@ -431,28 +516,26 @@ export const autoMatchNewItem = async (itemId) => {
 
     console.log(`✓ Found ${candidates.length} candidate items`);
 
+    const candidatesWithDistance = buildCandidatesWithDistance(itemCoords, candidates);
+    const scoredCandidates = await scoreCandidatesForItem(item, candidatesWithDistance);
+
     // Score all candidates and filter by minimum score
     const matchesToSave = [];
     
-    for (const candidate of candidates) {
-      const candCoords = candidate.location?.coordinates?.coordinates;
-      const distance = candCoords ? calculateDistance(itemCoords, candCoords) : null;
-      
-      const scoring = calculateScore(item, candidate);
-      
-      console.log(`  - ${candidate.itemName}: Score ${scoring.totalScore.toFixed(1)} (${getMatchStrength(scoring.totalScore)})`);
+    for (const { candidate, score, breakdown, distanceKm } of scoredCandidates) {
+      console.log(`  - ${candidate.itemName}: Score ${score.toFixed(1)} (${getMatchStrength(score)})`);
       
       // Only save matches above minimum threshold
-      if (scoring.totalScore >= MIN_MATCH_SCORE) {
+      if (score >= MIN_MATCH_SCORE) {
         matchesToSave.push({
           sourceItem: item._id,
           matchedItem: candidate._id,
           sourceUser: item.user._id,
           matchedUser: candidate.user._id,
-          matchScore: scoring.totalScore,
-          matchStrength: getMatchStrength(scoring.totalScore),
-          breakdown: scoring.breakdown,
-          distanceKm: distance,
+          matchScore: score,
+          matchStrength: getMatchStrength(score),
+          breakdown,
+          distanceKm,
           status: "pending",
           viewedBySource: false,
           notificationSent: false
@@ -464,7 +547,7 @@ export const autoMatchNewItem = async (itemId) => {
 
     // Bulk insert matches (ignore duplicates)
     if (matchesToSave.length > 0) {
-      const result = await MatchedItem.insertMany(matchesToSave, { ordered: false })
+      await MatchedItem.insertMany(matchesToSave, { ordered: false })
         .catch(err => {
           // Ignore duplicate key errors (code 11000)
           if (err.code !== 11000) {

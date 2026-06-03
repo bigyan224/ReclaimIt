@@ -11,17 +11,63 @@ const api = axios.create({
   },
 });
 
-// Create a function that accepts a token parameter
-export const getAuthenticatedApi = (token) => {
-  // Create a new instance with the token
+// Create a function that accepts a token parameter and getToken function
+export const getAuthenticatedApi = (token, getTokenFn = null) => {
+  let currentToken = token;
+
+  // Create a new instance with the initial token. A request interceptor below
+  // refreshes it before each call so long-lived screens do not reuse expired JWTs.
   const authenticatedApi = axios.create({
     baseURL: API_URL,
     timeout: 30000, // 30 second timeout
     headers: {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
+      ...(currentToken && { Authorization: `Bearer ${currentToken}` })
     },
   });
+
+  authenticatedApi.interceptors.request.use(
+    async (config) => {
+      if (getTokenFn) {
+        const freshToken = await getTokenFn({ skipCache: true });
+        if (freshToken) {
+          currentToken = freshToken;
+          config.headers.Authorization = `Bearer ${freshToken}`;
+        }
+      } else if (currentToken) {
+        config.headers.Authorization = `Bearer ${currentToken}`;
+      }
+
+      return config;
+    },
+    error => Promise.reject(error)
+  );
+
+  // Add response interceptor to handle 401 and refresh token
+  authenticatedApi.interceptors.response.use(
+    response => response,
+    async (error) => {
+      const originalRequest = error.config;
+
+      // If we get a 401 and have a getToken function, try refreshing the token
+      if (error.response?.status === 401 && getTokenFn && !originalRequest._retry) {
+        originalRequest._retry = true;
+        try {
+          const newToken = await getTokenFn({ skipCache: true });
+          if (newToken) {
+            currentToken = newToken;
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return authenticatedApi(originalRequest);
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed:', refreshError);
+          return Promise.reject(error);
+        }
+      }
+
+      return Promise.reject(error);
+    }
+  );
 
   return {
     reportItem: async (itemData) => {
@@ -138,6 +184,65 @@ export const getAuthenticatedApi = (token) => {
         return response.data;
       } catch (error) {
         console.error('Error sending message:', error);
+        throw error;
+      }
+    },
+    sendVoiceMessage: async (chatId, audioUri, durationMs = 0) => {
+      try {
+        const formData = new FormData();
+        formData.append('audio', {
+          uri: audioUri,
+          name: `voice-${Date.now()}.m4a`,
+          type: 'audio/m4a'
+        });
+        formData.append('durationMs', String(durationMs));
+
+        const voiceToken = getTokenFn ? await getTokenFn({ skipCache: true }) : currentToken;
+
+        // Use fetch for file multipart in React Native to avoid intermittent axios network errors.
+        const response = await fetch(`${API_URL}/chats/${chatId}/messages/voice`, {
+          method: 'POST',
+          headers: {
+            ...(voiceToken && { Authorization: `Bearer ${voiceToken}` })
+          },
+          body: formData,
+        });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+
+        if (!response.ok) {
+          const errorMessage = payload?.message || payload?.error || `Voice upload failed (${response.status})`;
+          throw new Error(errorMessage);
+        }
+
+        return payload;
+      } catch (error) {
+        console.error('Error sending voice message:', error);
+        throw error;
+      }
+    },
+    transcribeVoiceMessageEnglish: async (chatId, messageId) => {
+      try {
+        const response = await authenticatedApi.post(`/chats/${chatId}/messages/${messageId}/transcribe-en`);
+        return response.data;
+      } catch (error) {
+        console.error('Error transcribing voice message:', error);
+        throw error;
+      }
+    },
+    translateTextMessage: async (chatId, messageId, targetLanguage) => {
+      try {
+        const response = await authenticatedApi.post(`/chats/${chatId}/messages/${messageId}/translate`, {
+          targetLanguage,
+        });
+        return response.data;
+      } catch (error) {
+        console.error('Error translating text message:', error);
         throw error;
       }
     },

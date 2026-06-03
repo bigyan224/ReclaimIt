@@ -13,7 +13,7 @@ export const useImageUpload = () => {
    * @returns {Promise<{url: string, publicId: string}>} - Cloudinary URL and publicId
    */
   const uploadImage = async (uri, onProgress) => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) throw new Error("Not authenticated");
     if (!API_URL) throw new Error("API URL is not configured");
 

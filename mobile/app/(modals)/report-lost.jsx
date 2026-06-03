@@ -27,12 +27,21 @@ import { useAuth } from '@clerk/clerk-expo';
 import { getAuthenticatedApi } from '../../services/api';
 import { useItemReportForm } from '../../hooks/useItemReportForm';
 import { getReportFormStyles } from '../../assets/styles/report-form.styles';
+import { useI18n } from '../../i18n/I18nProvider';
 
 export default function ReportLost() {
   const styles = getReportFormStyles('LOST');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const { getToken } = useAuth();
+  const { t } = useI18n();
+  const categories = [
+    { key: 'electronics', value: 'Electronics' },
+    { key: 'documents', value: 'Documents' },
+    { key: 'clothing', value: 'Clothing' },
+    { key: 'accessories', value: 'Accessories' },
+    { key: 'other', value: 'Other' },
+  ];
 
   // Use the shared hook
   const {
@@ -72,8 +81,8 @@ export default function ReportLost() {
     if (!validateForm('LOST')) return;
     
     setIsSubmitting(true);
-     const token = await getToken();
-      const api = getAuthenticatedApi(token);
+     const token = await getToken({ skipCache: true });
+      const api = getAuthenticatedApi(token, getToken);
 
     
     try {
@@ -94,21 +103,21 @@ export default function ReportLost() {
       console.log(result);
       
       Alert.alert(
-        'Success',
-        'Your lost item has been reported successfully!',
+        t('common.success'),
+        t('report.reportLostSuccess'),
         [
           {
-            text: 'OK',
+            text: t('common.ok'),
             onPress: () => router.push('/(tabs)/')
           }
         ]
       );
     } catch (error) {
       console.error('Error reporting item:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to report item. Please try again.';
+      const errorMessage = error.response?.data?.message || t('report.reportFailed');
       setError(errorMessage);
       setIsSubmitting(false);
-      Alert.alert('Error', errorMessage);
+      Alert.alert(t('common.error'), errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -127,7 +136,7 @@ export default function ReportLost() {
     >
       <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Report Lost Item</Text>
+        <Text style={styles.headerTitle}>{t('report.reportLostTitle')}</Text>
       </View>
 
       <ScrollView 
@@ -146,13 +155,13 @@ export default function ReportLost() {
               ) : (
                 <View style={styles.imagePlaceholder}>
                   <Ionicons name="camera" size={32} color="#666" />
-                  <Text style={styles.imagePlaceholderText}>Add Photo</Text>
+                  <Text style={styles.imagePlaceholderText}>{t('report.addPhoto')}</Text>
                 </View>
               )}
             </TouchableOpacity>
             {uploading && (
   <View style={{ marginTop: 10 }}>
-    <Text>Uploading {uploadProgress}%</Text>
+    <Text>{t('report.uploading', { progress: uploadProgress })}</Text>
 
     <View
       style={{
@@ -178,40 +187,40 @@ export default function ReportLost() {
 
           {/* Form Fields */}
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Item Name *</Text>
+            <Text style={styles.label}>{t('report.itemName')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter item name"
+              placeholder={t('report.itemNamePlaceholder')}
               value={formData.name}
               onChangeText={(text) => handleInputChange('name', text)}
             />
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Brand Name (Optional)</Text>
+            <Text style={styles.label}>{t('report.brandNameOptional')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter brand name (if known)"
+              placeholder={t('report.brandPlaceholder')}
               value={formData.brandName}
               onChangeText={(text) => handleInputChange('brandName', text)}
             />
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Color *</Text>
+            <Text style={styles.label}>{t('report.color')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter item color"
+              placeholder={t('report.colorPlaceholder')}
               value={formData.color}
               onChangeText={(text) => handleInputChange('color', text)}
             />
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Description *</Text>
+            <Text style={styles.label}>{t('report.description')}</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Provide detailed description of the item..."
+              placeholder={t('report.descriptionPlaceholder')}
               multiline
               numberOfLines={4}
               value={formData.description}
@@ -220,24 +229,24 @@ export default function ReportLost() {
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Category *</Text>
+            <Text style={styles.label}>{t('report.category')}</Text>
             <View style={styles.categoryContainer}>
-              {['Electronics', 'Documents', 'Clothing', 'Accessories', 'Other'].map((category) => (
+              {categories.map((category) => (
                 <TouchableOpacity
-                  key={category}
+                  key={category.value}
                   style={[
                     styles.categoryButton,
-                    formData.category === category && styles.categoryButtonActive
+                    formData.category === category.value && styles.categoryButtonActive
                   ]}
-                  onPress={() => handleInputChange('category', category)}
+                  onPress={() => handleInputChange('category', category.value)}
                 >
                   <Text 
                     style={[
                       styles.categoryButtonText,
-                      formData.category === category && styles.categoryButtonTextActive
+                      formData.category === category.value && styles.categoryButtonTextActive
                     ]}
                   >
-                    {category}
+                    {t(`report.categories.${category.key}`)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -288,7 +297,7 @@ export default function ReportLost() {
     ) : (
       <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5' }]}>
         <Ionicons name="map-outline" size={48} color="#ccc" />
-        <Text style={{ color: '#666', marginTop: 8 }}>Map not available</Text>
+        <Text style={{ color: '#666', marginTop: 8 }}>{t('report.mapNotAvailable')}</Text>
       </View>
     )}
   </View>
@@ -303,11 +312,11 @@ export default function ReportLost() {
 
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Location *</Text>
+            <Text style={styles.label}>{t('report.location')}</Text>
             <View style={styles.locationInputContainer}>
               <TextInput
                 style={styles.input}
-                placeholder="Enter location (e.g., Delhi, Paris...)"
+                placeholder={t('report.locationPlaceholder')}
                 value={formData.location}
                 onChangeText={(text) => {
                   handleInputChange('location', text);
@@ -354,7 +363,7 @@ export default function ReportLost() {
 
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>When did you lose it? *</Text>
+            <Text style={styles.label}>{t('report.whereLost')}</Text>
             <TouchableOpacity 
               style={styles.datePickerButton}
               onPress={showDatepicker}
@@ -387,7 +396,7 @@ export default function ReportLost() {
         disabled={isSubmitting || uploading}
       >
         <Text style={styles.submitButtonText}>
-          {isSubmitting ? 'Submitting...' : 'Report Lost Item'}
+          {isSubmitting ? t('common.submitting') : t('report.reportLostCta')}
         </Text>
       </TouchableOpacity>
         </ScrollView>
