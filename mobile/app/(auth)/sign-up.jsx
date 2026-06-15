@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Text, TextInput, TouchableOpacity, View, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useSignUp, useAuth, useOAuth } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { styles } from "@/assets/styles/auth.styles.js";
@@ -7,7 +7,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../constants/colors";
 import { Image } from "expo-image";
 import { API_URL } from "../../config/env";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as WebBrowser from 'expo-web-browser';
 import { useI18n } from "../../i18n/I18nProvider";
 
@@ -227,12 +226,8 @@ export default function SignUpScreen() {
   }
 
   return (
-    <KeyboardAwareScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1 }}
-      enableOnAndroid={true}
-      enableAutomaticScroll={true}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
       <View style={styles.container}>
         <Image source={require("../../assets/images/3d-traveller-character-pointing-to-empty-phone-screen-free-png.png")} style={styles.illustration} />
 
@@ -295,6 +290,7 @@ export default function SignUpScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </KeyboardAwareScrollView>
+    </ScrollView>
+    </KeyboardAvoidingView>
   );
 }

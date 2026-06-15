@@ -1,8 +1,7 @@
 import { useSignIn, useOAuth, useAuth } from "@clerk/clerk-expo";
 import { Link, useRouter } from "expo-router";
-import { Text, TextInput, TouchableOpacity, View, Image } from "react-native";
+import { Text, TextInput, TouchableOpacity, View, Image, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useState } from "react";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { styles } from "../../assets/styles/auth.styles";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../constants/colors";
@@ -144,13 +143,8 @@ export default function Page() {
   };
 
   return (
-    <KeyboardAwareScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1 }}
-      enableOnAndroid={true}
-      enableAutomaticScroll={true}
-      extraScrollHeight={30}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
       <View style={styles.container}>
         <Image source={require("../../assets/images/3372415.png")} style={styles.illustration} />
         <Text style={styles.title}>{t('auth.welcomeBack')}</Text>
@@ -213,6 +207,7 @@ export default function Page() {
           </Link>
         </View>
       </View>
-    </KeyboardAwareScrollView>
+    </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
