@@ -43,8 +43,7 @@
                                                   },
                                  "edgeToEdgeEnabled":  true,
                                  "package":  "com.bigyan224.mobile",
-                                 "usesCleartextTraffic":  true
-                             },
+                              },
                  "web":  {
                              "bundler":  "metro",
                              "output":  "static",
