@@ -58,6 +58,7 @@ const ItemSchema = new mongoose.Schema(
       publicId: {
         type: String, // Cloudinary public_id for cleanup reference
       },
+
     },
 
 
@@ -94,7 +95,7 @@ const ItemSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["ACTIVE", "MATCHED", "CLOSED"],
+      enum: ["ACTIVE", "MATCHED", "CLOSED", "FLAGGED", "ARCHIVED", "CLAIMED"],
       default: "ACTIVE",
     },
 
@@ -102,6 +103,20 @@ const ItemSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
+    },
+
+    institution: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Institution",
+      default: null,
+      index: true,
+    },
+
+    visibility: {
+      type: String,
+      enum: ["PUBLIC", "INSTITUTION"],
+      default: "PUBLIC",
+      index: true,
     },
   },
   { timestamps: true }
@@ -114,6 +129,8 @@ ItemSchema.index({ "location.coordinates": "2dsphere" });
 ItemSchema.index({ type: 1, status: 1, category: 1 });
 ItemSchema.index({ type: 1, status: 1, createdAt: -1 });
 ItemSchema.index({ status: 1, dateTime: -1 });
+ItemSchema.index({ institution: 1, status: 1, createdAt: -1 });
+ItemSchema.index({ visibility: 1, status: 1, createdAt: -1 });
 
 /**
  * ✅ EXPORT THE MODEL

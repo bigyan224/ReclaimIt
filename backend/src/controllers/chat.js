@@ -286,6 +286,7 @@ export const getMyChats = async (req, res) => {
 
       return {
         _id: chat._id,
+        matchedItem: chat.matchedItem,
         otherUser: otherParticipant,
         items: chat.items,
         lastMessage: chat.lastMessage,

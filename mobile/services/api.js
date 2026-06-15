@@ -11,6 +11,11 @@ const api = axios.create({
   },
 });
 
+let onBannedCallback = null;
+export const registerBannedCallback = (cb) => {
+  onBannedCallback = cb;
+};
+
 // Create a function that accepts a token parameter and getToken function
 export const getAuthenticatedApi = (token, getTokenFn = null) => {
   let currentToken = token;
@@ -49,6 +54,13 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
     async (error) => {
       const originalRequest = error.config;
 
+      // Handle 403 Forbidden (Banned user)
+      if (error.response?.status === 403) {
+        if (onBannedCallback) {
+          onBannedCallback();
+        }
+      }
+
       // If we get a 401 and have a getToken function, try refreshing the token
       if (error.response?.status === 401 && getTokenFn && !originalRequest._retry) {
         originalRequest._retry = true;
@@ -79,12 +91,36 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         throw error;
       }
     },
-    getItems: async () => {
+    getItems: async (params = {}) => {
       try {
-        const response = await authenticatedApi.get('/items');
+        const query = new URLSearchParams();
+        if (params.type) query.set('type', params.type);
+        if (params.near) query.set('near', params.near);
+        if (params.radius) query.set('radius', String(params.radius));
+        if (params.institution) query.set('institution', params.institution);
+        const qs = query.toString();
+        const response = await authenticatedApi.get(`/items${qs ? `?${qs}` : ''}`);
         return response.data;
       } catch (error) {
         console.error('Error fetching items:', error);
+        throw error;
+      }
+    },
+    getItemById: async (itemId) => {
+      try {
+        const response = await authenticatedApi.get(`/items/${itemId}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching item by id:', error);
+        throw error;
+      }
+    },
+    updateItem: async (itemId, itemData) => {
+      try {
+        const response = await authenticatedApi.put(`/items/${itemId}`, itemData);
+        return response.data;
+      } catch (error) {
+        console.error('Error updating item:', error);
         throw error;
       }
     },
@@ -152,6 +188,15 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         throw error;
       }
     },
+    getMatchedItem: async (matchedItemId) => {
+      try {
+        const response = await authenticatedApi.get(`/matches/detail/${matchedItemId}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error getting matched item:', error);
+        throw error;
+      }
+    },
     getMatchedItemByItems: async (item1Id, item2Id) => {
       try {
         const response = await authenticatedApi.get('/matches/find', {
@@ -160,6 +205,33 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         return response.data;
       } catch (error) {
         console.error('Error getting matched item:', error);
+        throw error;
+      }
+    },
+    requestClaim: async (matchedItemId, chatId) => {
+      try {
+        const response = await authenticatedApi.post(`/matches/${matchedItemId}/claim`, { chatId });
+        return response.data;
+      } catch (error) {
+        console.error('Error requesting claim:', error);
+        throw error;
+      }
+    },
+    confirmClaim: async (matchedItemId, chatId) => {
+      try {
+        const response = await authenticatedApi.post(`/matches/${matchedItemId}/confirm`, { chatId });
+        return response.data;
+      } catch (error) {
+        console.error('Error confirming claim:', error);
+        throw error;
+      }
+    },
+    cancelClaim: async (matchedItemId, chatId) => {
+      try {
+        const response = await authenticatedApi.post(`/matches/${matchedItemId}/cancel-claim`, { chatId });
+        return response.data;
+      } catch (error) {
+        console.error('Error cancelling claim:', error);
         throw error;
       }
     },
@@ -254,7 +326,17 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         console.error('Error deleting chat:', error);
         throw error;
       }
-    }
+    },
+
+    getMyInstitutions: async () => {
+      try {
+        const response = await authenticatedApi.get('/institutions/me');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching institutions:', error);
+        throw error;
+      }
+    },
   };
 };
 

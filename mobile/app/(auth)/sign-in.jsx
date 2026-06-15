@@ -16,7 +16,7 @@ WebBrowser.maybeCompleteAuthSession();
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function Page() {
-  const { getToken } = useAuth();
+  const { getToken, signOut } = useAuth();
   const { signIn, setActive, isLoaded } = useSignIn();
   const router = useRouter();
   const { t } = useI18n();
@@ -55,13 +55,19 @@ export default function Page() {
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            console.error('User sync failed:', response.status, errorData);
+            console.warn('User sync failed:', response.status, errorData);
+            if (response.status === 403) {
+              setError("Your account is banned. Access denied.");
+              await signOut();
+              router.replace("/sign-in");
+              return;
+            }
             // Continue anyway - user is authenticated in Clerk
           } else {
             console.log('✅ User synced to backend');
           }
         } catch (syncErr) {
-          console.error('User sync request failed:', syncErr);
+          console.warn('User sync request failed:', syncErr);
           // Continue anyway - user is authenticated in Clerk
         }
 
@@ -97,13 +103,29 @@ export default function Page() {
         await wait(250);
         const token = await getFreshBackendToken();
         if (token) {
-          await fetch(`${API_URL}/users`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          }).catch(err => console.error('User sync failed:', err));
+          try {
+            const response = await fetch(`${API_URL}/users`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+            });
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              console.warn('User sync failed:', response.status, errorData);
+              if (response.status === 403) {
+                setError("Your account is banned. Access denied.");
+                await signOut();
+                router.replace("/sign-in");
+                return;
+              }
+            } else {
+              console.log('✅ User synced to backend');
+            }
+          } catch (err) {
+            console.warn('User sync failed:', err);
+          }
         }
         
         router.replace("/");

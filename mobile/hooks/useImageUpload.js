@@ -77,7 +77,6 @@ export const useImageUpload = () => {
       if (fallbackTimer) clearInterval(fallbackTimer);
       if (onProgress) onProgress(100);
 
-      // Return both url and publicId for form state
       return {
         url: response.data.url,
         publicId: response.data.publicId,

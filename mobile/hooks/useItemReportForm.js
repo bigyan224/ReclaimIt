@@ -4,26 +4,30 @@ import * as Location from "expo-location";
 import * as ImagePicker from 'expo-image-picker';
 import { useImageUpload } from './useImageUpload';
 import { useI18n } from '../i18n/I18nProvider';
+import { useAuth } from '@clerk/clerk-expo';
+import { getAuthenticatedApi } from '../services/api';
 
 /**
  * Shared hook for both report-found and report-lost forms
  * Handles location, image upload, location search, and form validation
  */
-export const useItemReportForm = (initialType = 'LOST') => {
+export const useItemReportForm = (initialType = 'LOST', initialData = null, skipAutoLocation = false) => {
   const { t } = useI18n();
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    location: '',
-    date: new Date(),
+  const buildInitialFormData = () => ({
+    name: initialData?.itemName || '',
+    description: initialData?.description || '',
+    location: initialData?.location?.name || initialData?.location || '',
+    date: initialData?.dateTime ? new Date(initialData.dateTime) : new Date(),
     showDatePicker: false,
-    category: '',
-    brandName: '',
-    color: '',
-    image: null,
+    category: initialData?.category || '',
+    brandName: initialData?.brandName || '',
+    color: initialData?.color || '',
+    image: initialData?.image || null,
   });
 
-  const [imagePreview, setImagePreview] = useState(null);
+  const [formData, setFormData] = useState(buildInitialFormData);
+
+  const [imagePreview, setImagePreview] = useState(initialData?.image?.url || null);
   const [coords, setCoords] = useState({
     latitude: 37.7749,
     longitude: -122.4194,
@@ -36,10 +40,46 @@ export const useItemReportForm = (initialType = 'LOST') => {
   const [error, setError] = useState('');
   const debounceTimerRef = useRef(null);
 
+  const [institutions, setInstitutions] = useState([]);
+  const [selectedInstitution, setSelectedInstitution] = useState('');
+  const fetchedInstRef = useRef(false);
+
+  const { getToken } = useAuth();
+
+  useEffect(() => {
+    if (fetchedInstRef.current) return;
+    fetchedInstRef.current = true;
+    getToken({ skipCache: true }).then(token => {
+      if (!token) return;
+      const api = getAuthenticatedApi(token, getToken);
+      api.getMyInstitutions().then(res => {
+        if (res.success && Array.isArray(res.institutions)) {
+          setInstitutions(res.institutions);
+        }
+      }).catch(() => {});
+    }).catch(() => {});
+  }, [getToken]);
+
   const { uploadImage } = useImageUpload();
+
+  useEffect(() => {
+    if (!initialData) return;
+
+    setFormData(buildInitialFormData());
+    setImagePreview(initialData.image?.url || null);
+
+    const coords = initialData.location?.coordinates?.coordinates;
+    if (Array.isArray(coords) && coords.length === 2) {
+      setCoords({ latitude: coords[1], longitude: coords[0] });
+    }
+  }, [initialData]);
 
   // Get current location on mount (if permission granted)
   useEffect(() => {
+    if (skipAutoLocation || initialData) {
+      return;
+    }
+
     (async () => {
       try {
         // Check current permission status first (doesn't show prompt)
@@ -89,7 +129,7 @@ export const useItemReportForm = (initialType = 'LOST') => {
         setLocationError(t('form.locationFetchFailed'));
       }
     })();
-  }, [t]);
+  }, [t, skipAutoLocation, initialData]);
 
   // Pick image from library
   const pickImage = async () => {
@@ -353,6 +393,8 @@ export const useItemReportForm = (initialType = 'LOST') => {
     uploading,
     uploadProgress,
     error,
+    institutions,
+    selectedInstitution,
     
     // Setters
     setFormData,
@@ -362,6 +404,7 @@ export const useItemReportForm = (initialType = 'LOST') => {
     setLocationSuggestions,
     setShowSuggestions,
     setError,
+    setSelectedInstitution,
     
     // Functions
     pickImage,

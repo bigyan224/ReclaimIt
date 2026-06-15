@@ -50,6 +50,9 @@ export default function ChatConversationScreen() {
   const [voiceTranscripts, setVoiceTranscripts] = useState({});
   const [showVoiceTranscript, setShowVoiceTranscript] = useState({});
   const [transcriptionLoading, setTranscriptionLoading] = useState({});
+  const [claimStatus, setClaimStatus] = useState(null);
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [matchedItemId, setMatchedItemId] = useState(null);
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const markedReadRef = useRef(new Set());
@@ -100,6 +103,18 @@ export default function ChatConversationScreen() {
         const currentChat = chatsResponse.chats?.find((c) => c._id === chatId) || null;
         setChatInfo(currentChat);
         setMessages(messagesResponse.messages || []);
+
+        // Fetch matchedItem claim status
+        if (currentChat?.matchedItem) {
+          setMatchedItemId(currentChat.matchedItem);
+          api.getMatchedItem(currentChat.matchedItem)
+            .then(res => {
+              if (!mounted) return;
+              const c = res?.matchedItem?.claim;
+              setClaimStatus(c?.status ? c : { status: "NONE", requestedBy: null });
+            })
+            .catch(() => {});
+        }
       } catch (err) {
         if (!mounted) return;
         console.error('Error loading chat data:', err);
@@ -772,8 +787,8 @@ export default function ChatConversationScreen() {
       ) : (
         <KeyboardAvoidingView
           style={styles.chatContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 56}
         >
           <FlatList
             ref={flatListRef}
@@ -791,6 +806,70 @@ export default function ChatConversationScreen() {
               </View>
             }
           />
+
+          {claimStatus?.status && claimStatus.status !== "NONE" && (
+            <View style={[styles.claimBanner, claimStatus.status === "CONFIRMED" && styles.claimBannerDone]}>
+              {claimStatus.status === "REQUESTED" && (
+                <>
+                  <Ionicons name="return-up-forward" size={20} color="#2563EB" style={{ marginRight: 8 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.claimBannerTitle}>{t('chat.returnRequested')}</Text>
+                    <Text style={styles.claimBannerSub}>
+                      {String(claimStatus.requestedBy) === user?.id
+                        ? t('chat.waitingConfirm')
+                        : t('chat.confirmReturn')}
+                    </Text>
+                  </View>
+                  {String(claimStatus.requestedBy) !== user?.id && (
+                    <TouchableOpacity
+                      style={styles.claimConfirmBtn}
+                      onPress={async () => {
+                        setClaimLoading(true);
+                        try {
+                          const token = await getToken({ skipCache: true });
+                          const api = getAuthenticatedApi(token, getToken);
+                          const res = await api.confirmClaim(matchedItemId, chatId);
+                          if (res?.matchedItem?.claim) setClaimStatus(res.matchedItem.claim);
+                        } catch (err) {
+                          Alert.alert(t('common.error'), err.response?.data?.message || 'Failed to confirm');
+                        } finally {
+                          setClaimLoading(false);
+                        }
+                      }}
+                      disabled={claimLoading}
+                    >
+                      <Text style={styles.claimConfirmText}>{claimLoading ? '...' : t('chat.confirm')}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={styles.claimCancelBtn}
+                    onPress={async () => {
+                      setClaimLoading(true);
+                      try {
+                        const token = await getToken({ skipCache: true });
+                        const api = getAuthenticatedApi(token, getToken);
+                        const res = await api.cancelClaim(matchedItemId, chatId);
+                        if (res?.matchedItem?.claim) setClaimStatus(res.matchedItem.claim);
+                      } catch (err) {
+                        Alert.alert(t('common.error'), err.response?.data?.message || 'Failed to cancel');
+                      } finally {
+                        setClaimLoading(false);
+                      }
+                    }}
+                    disabled={claimLoading}
+                  >
+                    <Ionicons name="close" size={18} color="#64748B" />
+                  </TouchableOpacity>
+                </>
+              )}
+              {claimStatus.status === "CONFIRMED" && (
+                <>
+                  <Ionicons name="checkmark-circle" size={22} color="#16A34A" style={{ marginRight: 8 }} />
+                  <Text style={[styles.claimBannerTitle, { color: '#16A34A' }]}>{t('chat.itemReturned')}</Text>
+                </>
+              )}
+            </View>
+          )}
 
           {otherUserTyping && (
             <View style={styles.typingIndicator}>
@@ -817,6 +896,31 @@ export default function ChatConversationScreen() {
                 <Ionicons name="trash-outline" size={18} color="#b91c1c" />
               </TouchableOpacity>
             </View>
+          )}
+
+          {claimStatus?.status === "NONE" && matchedItemId && (
+            <TouchableOpacity
+              style={styles.claimRequestBar}
+              onPress={async () => {
+                setClaimLoading(true);
+                try {
+                  const token = await getToken({ skipCache: true });
+                  const api = getAuthenticatedApi(token, getToken);
+                  const res = await api.requestClaim(matchedItemId, chatId);
+                  if (res?.matchedItem?.claim) setClaimStatus(res.matchedItem.claim);
+                } catch (err) {
+                  Alert.alert(t('common.error'), err.response?.data?.message || 'Failed to request');
+                } finally {
+                  setClaimLoading(false);
+                }
+              }}
+              disabled={claimLoading}
+            >
+              <Ionicons name="return-up-forward" size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.claimRequestText}>
+                {claimLoading ? '...' : t('chat.markReturned')}
+              </Text>
+            </TouchableOpacity>
           )}
 
           <View style={[styles.inputContainer, { paddingBottom: insets.bottom || 16 }]}>
@@ -1095,6 +1199,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
+  },
+  claimBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#EFF6FF',
+    borderTopWidth: 1,
+    borderTopColor: '#BFDBFE',
+  },
+  claimBannerDone: {
+    backgroundColor: '#F0FDF4',
+    borderTopColor: '#BBF7D0',
+  },
+  claimBannerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E40AF',
+  },
+  claimBannerSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  claimConfirmBtn: {
+    backgroundColor: '#2563EB',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  claimConfirmText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  claimCancelBtn: {
+    padding: 6,
+    marginLeft: 4,
+  },
+  claimRequestBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginHorizontal: 12,
+    marginBottom: 4,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+  },
+  claimRequestText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
   pendingVoiceContainer: {
     flexDirection: 'row',

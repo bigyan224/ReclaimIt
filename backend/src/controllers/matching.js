@@ -169,37 +169,200 @@ function scoreCandidatesWithRuleFallback(item, candidatesWithDistance) {
   });
 }
 
+// Matching mode configuration
+// Options: "python" | "mixed" | "gemini"
+// Set via environment variable MATCH_PROVIDER
+const MATCH_PROVIDER = process.env.MATCH_PROVIDER || "mixed";
+
+console.log(`[Matching] Using provider mode: ${MATCH_PROVIDER}`);
+
 async function scoreCandidatesForItem(item, candidatesWithDistance) {
-  let aiScores;
-  let provider = "local-python-matcher";
+  let pythonScores = [];
+  let geminiScores = [];
+  let pythonError = null;
+  let geminiError = null;
 
-  try {
-    aiScores = await scoreCandidatesWithLocalMatcher({
-      sourceItem: item,
-      candidates: candidatesWithDistance,
-    });
-  } catch (localMatcherError) {
-    console.error("Local matcher unavailable, trying Gemini:", localMatcherError?.message || localMatcherError);
-    provider = "gemini";
-
+  // Get Python scores if needed
+  if (MATCH_PROVIDER === "python" || MATCH_PROVIDER === "mixed") {
     try {
-      aiScores = await scoreCandidatesWithGemini({
+      pythonScores = await scoreCandidatesWithLocalMatcher({
         sourceItem: item,
         candidates: candidatesWithDistance,
       });
-    } catch (geminiError) {
-      console.error("Gemini scoring unavailable, using rule-based fallback:", geminiError?.message || geminiError);
-      provider = "rule-based-fallback";
-      aiScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
+    } catch (error) {
+      pythonError = error?.message || error;
+      console.error("Local matcher unavailable:", pythonError);
     }
   }
 
+  // Get Gemini scores if needed
+  if (MATCH_PROVIDER === "gemini" || MATCH_PROVIDER === "mixed") {
+    try {
+      geminiScores = await scoreCandidatesWithGemini({
+        sourceItem: item,
+        candidates: candidatesWithDistance,
+      });
+    } catch (error) {
+      geminiError = error?.message || error;
+      console.error("Gemini scoring unavailable:", geminiError);
+    }
+  }
+
+  // Handle mode-specific logic
+  if (MATCH_PROVIDER === "python") {
+    // Python only
+    if (pythonScores.length === 0) {
+      console.warn("Python mode selected but API unavailable, falling back to rules");
+      const fallbackScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
+      return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+        const fallbackScore = fallbackScores.find((s) => s.candidateId === String(candidate._id)) || {
+          matchScore: 0,
+          confidence: 0,
+          reasoning: ["Python unavailable, using fallback"],
+          provider: "rule-based-fallback",
+        };
+        return {
+          candidate,
+          score: fallbackScore.matchScore,
+          confidence: fallbackScore.confidence,
+          breakdown: {
+            provider: fallbackScore.provider,
+            confidence: fallbackScore.confidence,
+            reasoning: fallbackScore.reasoning,
+          },
+          distanceKm,
+        };
+      });
+    }
+    return mapScoresToCandidates(candidatesWithDistance, pythonScores, "local-python-matcher");
+  }
+
+  if (MATCH_PROVIDER === "gemini") {
+    // Gemini only
+    if (geminiScores.length === 0) {
+      console.warn("Gemini mode selected but API unavailable, falling back to rules");
+      const fallbackScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
+      return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+        const fallbackScore = fallbackScores.find((s) => s.candidateId === String(candidate._id)) || {
+          matchScore: 0,
+          confidence: 0,
+          reasoning: ["Gemini unavailable, using fallback"],
+          provider: "rule-based-fallback",
+        };
+        return {
+          candidate,
+          score: fallbackScore.matchScore,
+          confidence: fallbackScore.confidence,
+          breakdown: {
+            provider: fallbackScore.provider,
+            confidence: fallbackScore.confidence,
+            reasoning: fallbackScore.reasoning,
+          },
+          distanceKm,
+        };
+      });
+    }
+    return mapScoresToCandidates(candidatesWithDistance, geminiScores, "gemini");
+  }
+
+  // Mixed mode (default)
+  if (pythonScores.length === 0 && geminiScores.length === 0) {
+    console.error("Both scorers failed, using rule-based fallback");
+    const fallbackScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
+    return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+      const fallbackScore = fallbackScores.find((s) => s.candidateId === String(candidate._id)) || {
+        matchScore: 0,
+        confidence: 0,
+        reasoning: ["Both AI scorers failed"],
+        provider: "rule-based-fallback",
+      };
+      return {
+        candidate,
+        score: fallbackScore.matchScore,
+        confidence: fallbackScore.confidence,
+        breakdown: {
+          provider: fallbackScore.provider,
+          confidence: fallbackScore.confidence,
+          reasoning: fallbackScore.reasoning,
+        },
+        distanceKm,
+      };
+    });
+  }
+
+  // Blend scores: 50% Python + 50% Gemini
+  const scoreByCandidateId = new Map();
+
+  candidatesWithDistance.forEach(({ item: candidate }) => {
+    const candidateId = String(candidate._id);
+    const pythonScore = pythonScores.find((s) => s.candidateId === candidateId);
+    const geminiScore = geminiScores.find((s) => s.candidateId === candidateId);
+
+    let blendedScore = 0;
+    let blendedConfidence = 0;
+    let provider = "mixed";
+    let reasoning = [];
+
+    if (pythonScore && geminiScore) {
+      // Both available: 50/50 blend
+      blendedScore = (pythonScore.matchScore * 0.5) + (geminiScore.matchScore * 0.5);
+      blendedConfidence = (pythonScore.confidence * 0.5) + (geminiScore.confidence * 0.5);
+      reasoning = [
+        `Python: ${Math.round(pythonScore.matchScore)}/100`,
+        `Gemini: ${Math.round(geminiScore.matchScore)}/100`,
+        `Blended (50/50): ${Math.round(blendedScore)}/100`,
+      ];
+    } else if (pythonScore) {
+      // Only Python available
+      blendedScore = pythonScore.matchScore;
+      blendedConfidence = pythonScore.confidence;
+      provider = "local-python-matcher";
+      reasoning = pythonScore.reasoning;
+    } else if (geminiScore) {
+      // Only Gemini available
+      blendedScore = geminiScore.matchScore;
+      blendedConfidence = geminiScore.confidence;
+      provider = "gemini";
+      reasoning = geminiScore.reasoning;
+    }
+
+    scoreByCandidateId.set(candidateId, {
+      matchScore: Math.round(blendedScore * 100) / 100,
+      confidence: Math.round(blendedConfidence * 100) / 100,
+      reasoning,
+      provider,
+    });
+  });
+
+  return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
+    const blended = scoreByCandidateId.get(String(candidate._id)) || {
+      matchScore: 0,
+      confidence: 0,
+      reasoning: ["No scores available"],
+      provider: "none",
+    };
+
+    return {
+      candidate,
+      score: blended.matchScore,
+      confidence: blended.confidence,
+      breakdown: {
+        provider: blended.provider,
+        confidence: blended.confidence,
+        reasoning: blended.reasoning,
+      },
+      distanceKm,
+    };
+  });
+}
+
+function mapScoresToCandidates(candidatesWithDistance, scores, provider) {
   const scoreByCandidateId = new Map(
-    aiScores.map((score) => [String(score.candidateId), score])
+    scores.map((score) => [String(score.candidateId), score])
   );
 
   return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
-    const aiScore = scoreByCandidateId.get(String(candidate._id)) || {
+    const score = scoreByCandidateId.get(String(candidate._id)) || {
       matchScore: 0,
       confidence: 0,
       reasoning: [`No ${provider} score returned`],
@@ -208,12 +371,12 @@ async function scoreCandidatesForItem(item, candidatesWithDistance) {
 
     return {
       candidate,
-      score: aiScore.matchScore,
-      confidence: aiScore.confidence,
+      score: score.matchScore,
+      confidence: score.confidence,
       breakdown: {
-        provider: aiScore.provider || provider,
-        confidence: aiScore.confidence,
-        reasoning: aiScore.reasoning,
+        provider: score.provider || provider,
+        confidence: score.confidence,
+        reasoning: score.reasoning,
       },
       distanceKm,
     };
@@ -470,6 +633,32 @@ export const getMatchedItemByItems = async (req, res) => {
       success: false,
       message: "Internal server error"
     });
+  }
+};
+
+export const getMatchedItemById = async (req, res) => {
+  try {
+    const { clerkUserId } = req;
+    const { id } = req.params;
+
+    const user = await getOrCreateUser(clerkUserId);
+    if (!user) return res.status(401).json({ success: false, message: "User not found" });
+
+    const matchedItem = await MatchedItem.findById(id)
+      .populate("sourceItem matchedItem sourceUser matchedUser");
+
+    if (!matchedItem) return res.status(404).json({ success: false, message: "Match not found" });
+
+    const isParticipant =
+      String(matchedItem.sourceUser._id) === String(user._id) ||
+      String(matchedItem.matchedUser._id) === String(user._id);
+
+    if (!isParticipant) return res.status(403).json({ success: false, message: "Not a participant" });
+
+    res.json({ success: true, matchedItem });
+  } catch (error) {
+    console.error("Error getting matched item:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 

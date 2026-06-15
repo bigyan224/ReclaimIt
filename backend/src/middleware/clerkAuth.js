@@ -1,4 +1,5 @@
 import { verifyToken } from "@clerk/clerk-sdk-node";
+import User from "../models/user.model.js";
 
 const CLERK_CLOCK_SKEW_MS = Number(process.env.CLERK_CLOCK_SKEW_MS || 5 * 60 * 1000);
 
@@ -16,6 +17,12 @@ export const requireAuth = async (req, res, next) => {
       secretKey: process.env.CLERK_SECRET_KEY,
       clockSkewInMs: CLERK_CLOCK_SKEW_MS,
     });
+
+    // Check if the user is banned in the local database
+    const localUser = await User.findOne({ clerkId: payload.sub });
+    if (localUser && localUser.status === "BANNED") {
+      return res.status(403).json({ error: "Your account is banned. Access denied." });
+    }
 
     req.clerkUserId = payload.sub; // 🔑 Clerk user id
     next();

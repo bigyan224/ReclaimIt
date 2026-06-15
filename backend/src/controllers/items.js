@@ -1,5 +1,7 @@
 import Item from "../models/item.model.js";
 import User from "../models/user.model.js";
+import MatchedItem from "../models/matchedItem.model.js";
+import Notification from "../models/notification.model.js";
 import cloudinary from "../config/cloudinary.js";
 import { autoMatchNewItem } from "./matching.js";
 import { getOrCreateUser } from "../utils/userSync.js";
@@ -16,9 +18,10 @@ export const reportItem = async (req, res) => {
       category,
       brandName,
       color,
-      image, // Now expects { url, publicId } object
+      image,
       type,
-      coords, // { latitude, longitude }
+      coords,
+      institution: institutionId,
     } = req.body;
     const user = await getOrCreateUser(req.clerkUserId);
     if (!user) {
@@ -52,15 +55,15 @@ export const reportItem = async (req, res) => {
       });
     }
 
-    // Prepare image data - handle both old string format and new object format
     let imageData = null;
     if (image) {
       if (typeof image === "string") {
-        // Legacy: plain URL string
         imageData = { url: image, publicId: null };
       } else if (typeof image === "object" && image.url) {
-        // New format: { url, publicId }
-        imageData = { url: image.url, publicId: image.publicId || null };
+        imageData = {
+          url: image.url,
+          publicId: image.publicId || null,
+        };
       }
     }
 
@@ -97,6 +100,18 @@ export const reportItem = async (req, res) => {
       user: user._id,
       status: "ACTIVE",
     };
+    // If institution was provided, validate user is a member and assign it
+    if (institutionId) {
+      const userInstIds = [
+        ...(user.institutions || []).map((id) => String(id)),
+        ...(user.adminInstitutions || []).map((id) => String(id)),
+      ];
+      if (userInstIds.includes(String(institutionId))) {
+        itemData.institution = institutionId;
+        itemData.visibility = "INSTITUTION";
+      }
+    }
+
     // Create and save the item
     const newItem = new Item(itemData);
     await newItem.save();
@@ -122,11 +137,43 @@ export const reportItem = async (req, res) => {
   }
 };
 
-// Controller to get all items (for testing or listing)
+// Controller to get items with optional type, location, and institution filters
 export const getItems = async (req, res) => {
   console.log("Fetching items...");
   try {
-    const items = await Item.find().populate("user", "name email");
+    const filter = {};
+    const { type, near, radius, institution } = req.query;
+
+    if (type) filter.type = type.toUpperCase();
+
+    if (institution) {
+      const user = await getOrCreateUser(req.clerkUserId);
+      if (!user) return res.status(401).json({ success: false, message: "Unauthorized" });
+      const userInstIds = [
+        ...(user.institutions || []).map((id) => String(id)),
+        ...(user.adminInstitutions || []).map((id) => String(id)),
+      ];
+      if (!userInstIds.includes(String(institution))) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      filter.institution = institution;
+    }
+
+    if (near) {
+      const parts = String(near).split(",").map(Number);
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        const [lat, lng] = parts;
+        const radiusMeters = (Number(radius) || 20) * 1000;
+        filter["location.coordinates"] = {
+          $near: {
+            $geometry: { type: "Point", coordinates: [lng, lat] },
+            $maxDistance: radiusMeters,
+          },
+        };
+      }
+    }
+
+    const items = await Item.find(filter).populate("user", "name email clerkId").sort({ createdAt: -1 });
     res.status(200).json({
       success: true,
       items,
@@ -137,6 +184,156 @@ export const getItems = async (req, res) => {
       success: false,
       message: "Internal server error",
     });
+  }
+};
+
+export const getItemById = async (req, res) => {
+  try {
+    const { clerkUserId } = req;
+    const { id } = req.params;
+
+    const user = await getOrCreateUser(clerkUserId);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "User authentication failed" });
+    }
+
+    const item = await Item.findById(id).populate("user", "name email clerkId");
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Item not found" });
+    }
+
+    if (String(item.user?._id || item.user) !== String(user._id)) {
+      return res.status(403).json({ success: false, message: "You are not authorized to edit this item" });
+    }
+
+    res.status(200).json({ success: true, item });
+  } catch (error) {
+    console.error("Error fetching item by id:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const updateItem = async (req, res) => {
+  try {
+    const { clerkUserId } = req;
+    const { id } = req.params;
+
+    const user = await getOrCreateUser(clerkUserId);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "User authentication failed" });
+    }
+
+    const item = await Item.findById(id);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Item not found" });
+    }
+
+    if (String(item.user) !== String(user._id)) {
+      return res.status(403).json({ success: false, message: "You are not authorized to update this item" });
+    }
+
+    const {
+      name,
+      description,
+      location,
+      date,
+      category,
+      brandName,
+      color,
+      image,
+      type,
+      coords,
+    } = req.body;
+
+    if (!name || !description || !location || !date || !category || !color || !type) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: name, description, location, date, category, color, type",
+      });
+    }
+
+    if (!['lost', 'found'].includes(String(type).toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid type. Must be 'lost' or 'found'",
+      });
+    }
+
+    let imageData = item.image || null;
+    if (image) {
+      if (typeof image === 'string') {
+        imageData = { url: image, publicId: null };
+      } else if (typeof image === 'object' && image.url) {
+        imageData = { url: image.url, publicId: image.publicId || null };
+      }
+    }
+
+    if (String(type).toUpperCase() === 'FOUND' && (!imageData || !imageData.url)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image is required for found items',
+      });
+    }
+
+    if (imageData?.publicId) {
+      try {
+        await cloudinary.api.resource(imageData.publicId);
+      } catch (err) {
+        console.error('Image verification failed:', err?.message || err);
+        return res.status(400).json({
+          success: false,
+          message: 'Uploaded image not found or expired. Please re-upload the image.',
+        });
+      }
+    }
+
+    item.type = String(type).toUpperCase();
+    item.itemName = name;
+    item.description = description;
+    item.category = category;
+    item.color = color;
+    item.brandName = brandName || "";
+    item.image = imageData;
+    item.location = {
+      name: location,
+      coordinates: {
+        type: 'Point',
+        coordinates: [coords.longitude, coords.latitude],
+      },
+    };
+    item.dateTime = new Date(date);
+    item.status = 'ACTIVE';
+    item.claimedBy = null;
+
+    const savedItem = await item.save();
+
+    await MatchedItem.deleteMany({
+      $or: [{ sourceItem: savedItem._id }, { matchedItem: savedItem._id }],
+    });
+
+    await Notification.deleteMany({
+      $or: [
+        { 'meta.sourceItemId': savedItem._id },
+        { 'meta.matchedItemId': savedItem._id },
+        { item: savedItem._id },
+      ],
+    });
+
+    // Run matching algorithm in background (non-blocking)
+    autoMatchNewItem(savedItem._id).catch(err => {
+      console.error('❌ Background matching failed:', err);
+    });
+
+    const updatedItem = await Item.findById(savedItem._id).populate('user', 'name email clerkId');
+
+    res.status(200).json({
+      success: true,
+      message: 'Item updated successfully',
+      item: updatedItem,
+    });
+  } catch (error) {
+    console.error('Error updating item:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 

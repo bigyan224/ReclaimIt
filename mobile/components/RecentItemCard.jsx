@@ -6,7 +6,7 @@ import { useAuth } from "@clerk/clerk-expo";
 import { getAuthenticatedApi } from "../services/api";
 import { useI18n } from "../i18n/I18nProvider";
 
-export default function RecentItemCard({ item, onDelete }) {
+export default function RecentItemCard({ item, onDelete, showDeleteButton = true, currentUserId }) {
   const router = useRouter();
   const { t } = useI18n();
   const isFound = item.type === "FOUND";
@@ -47,7 +47,7 @@ export default function RecentItemCard({ item, onDelete }) {
         )}
 
         <View style={styles.content}>
-          <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.title} numberOfLines={1}>{item.itemName}</Text>
           <Text style={styles.type}>{isFound ? t('recent.foundItem') : t('recent.lostItem')}</Text>
 
           {locationLabel ? (
@@ -68,13 +68,15 @@ export default function RecentItemCard({ item, onDelete }) {
             <Ionicons name="eye" size={20} color={primaryColor} />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.iconButton, { backgroundColor: '#FFF1F2' }]}
-            onPress={() => setDeleteVisible(true)}
-            accessibilityLabel={t('recent.deleteItem')}
-          >
-            <Ionicons name="trash" size={20} color="#DC2626" />
-          </TouchableOpacity>
+          {showDeleteButton && (
+            <TouchableOpacity
+              style={[styles.iconButton, { backgroundColor: '#FFF1F2' }]}
+              onPress={() => setDeleteVisible(true)}
+              accessibilityLabel={t('recent.deleteItem')}
+            >
+              <Ionicons name="trash" size={20} color="#DC2626" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -95,7 +97,7 @@ export default function RecentItemCard({ item, onDelete }) {
                 </View>
               )}
 
-              <Text style={styles.modalTitle}>{item.name}</Text>
+              <Text style={styles.modalTitle}>{item.itemName}</Text>
               <View style={styles.badgeRow}>
                 <View style={[styles.badge, { backgroundColor: primaryColor }]}>
                   <Text style={styles.badgeText}>{isFound ? t('recent.found') : t('recent.lost')}</Text>
@@ -132,9 +134,11 @@ export default function RecentItemCard({ item, onDelete }) {
             </ScrollView>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.actionButton} onPress={() => { setShowModal(false); router.push(`/item/${item._id}/edit`); }}>
-                <Text style={styles.actionButtonText}>{t('recent.edit')}</Text>
-              </TouchableOpacity>
+              {showDeleteButton && (
+                <TouchableOpacity style={styles.actionButton} onPress={() => { setShowModal(false); router.push(`/item/${item._id}/edit`); }}>
+                  <Text style={styles.actionButtonText}>{t('recent.edit')}</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={[styles.actionButton, styles.closeButton]} onPress={() => setShowModal(false)}>
                 <Text style={[styles.actionButtonText, styles.closeButtonText]}>{t('recent.close')}</Text>
               </TouchableOpacity>

@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import RecentItemCard from "./RecentItemCard";
 import { useI18n } from "../i18n/I18nProvider";
 
-export default function RecentItemsList({ items, onDelete }) {
+export default function RecentItemsList({ items, onDelete, showDeleteButton = true, currentUserId }) {
   const { t } = useI18n();
 
   if (!items || items.length === 0) {
@@ -22,6 +22,8 @@ export default function RecentItemsList({ items, onDelete }) {
           key={item._id}
           item={item}
           onDelete={onDelete}
+          showDeleteButton={showDeleteButton}
+          currentUserId={currentUserId}
         />
       ))}
     </View>

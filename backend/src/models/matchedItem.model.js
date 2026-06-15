@@ -79,6 +79,27 @@ const MatchedItemSchema = new mongoose.Schema(
       default: false,
     },
 
+    // Claim tracking for item return
+    claim: {
+      status: {
+        type: String,
+        enum: ["NONE", "REQUESTED", "CONFIRMED"],
+        default: "NONE",
+      },
+      requestedBy: {
+        type: String,
+        default: null,
+      },
+      confirmedBy: {
+        type: String,
+        default: null,
+      },
+      confirmedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
     // Response from matched user (optional message)
     response: {
       type: String,
@@ -100,8 +121,7 @@ MatchedItemSchema.index({ matchedUser: 1, status: 1, createdAt: -1 });
 MatchedItemSchema.index({ status: 1, matchStrength: 1 });
 
 // Prevent duplicate matches (A->B and B->A)
-MatchedItemSchema.pre("save", async function (next) {
-  // Check if reverse match already exists
+MatchedItemSchema.pre("save", async function () {
   const reverseMatch = await this.constructor.findOne({
     sourceItem: this.matchedItem,
     matchedItem: this.sourceItem,
@@ -110,10 +130,8 @@ MatchedItemSchema.pre("save", async function (next) {
   if (reverseMatch) {
     const error = new Error("Reverse match already exists");
     error.code = "DUPLICATE_MATCH";
-    return next(error);
+    throw error;
   }
-
-  next();
 });
 
 export default mongoose.models.MatchedItem || mongoose.model("MatchedItem", MatchedItemSchema);

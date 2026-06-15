@@ -195,6 +195,46 @@ export const getReportFormStyles = (type = 'FOUND') => {
       color: '#333',
       flex: 1,
     },
+    pickerButton: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 8,
+      padding: 12,
+      backgroundColor: '#f8f9fa',
+    },
+    pickerButtonText: {
+      fontSize: 16,
+      color: '#333',
+      flex: 1,
+    },
+    pickerDropdown: {
+      marginTop: 4,
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 8,
+      backgroundColor: '#fff',
+      overflow: 'hidden',
+    },
+    pickerOption: {
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: '#f0f0f0',
+    },
+    pickerOptionActive: {
+      backgroundColor: '#f0f7ff',
+    },
+    pickerOptionText: {
+      fontSize: 15,
+      color: '#333',
+    },
+    pickerOptionTextActive: {
+      color: primaryColor,
+      fontWeight: '600',
+    },
     clearLocationButton: {
       position: 'absolute',
       right: 12,

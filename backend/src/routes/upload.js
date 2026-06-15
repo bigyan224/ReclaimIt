@@ -1,39 +1,53 @@
 import express from "express";
-import { uploadTemp, uploadPermanent } from "../middleware/upload.js";
+import {
+  uploadTemp,
+  uploadPermanent,
+  uploadToCloudinary,
+  cleanupLocalFile,
+} from "../middleware/upload.js";
 import { requireAuth } from "../middleware/clerkAuth.js";
 
 const router = express.Router();
 
-// Temp upload - images go to reclaimit/temp folder
-// Returns both url and publicId for cleanup tracking
-router.post(
-  "/temp",
-  requireAuth,
-  uploadTemp.single("image"),
-  (req, res) => {
+// Temp upload: store locally → upload to Cloudinary → cleanup
+router.post("/temp", requireAuth, uploadTemp.single("image"), async (req, res) => {
+  try {
     if (!req.file) {
       return res.status(400).json({ error: "No image file provided" });
     }
-    res.json({
-      url: req.file.path, // Cloudinary secure URL
-      publicId: req.file.filename, // Cloudinary public_id for cleanup
-    });
-  }
-);
 
-// Legacy route - direct permanent upload (kept for backward compatibility)
-router.post(
-  "/image",
-  requireAuth,
-  uploadPermanent.single("image"),
-  (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No image file provided" });
+    const localFilePath = req.file.path;
+    let cloudinaryResult = null;
+
+    try {
+      cloudinaryResult = await uploadToCloudinary(localFilePath, "reclaimit/temp");
+    } finally {
+      cleanupLocalFile(localFilePath);
     }
+
     res.json({
-      imageUrl: req.file.path, // Cloudinary URL
+      success: true,
+      url: cloudinaryResult.secure_url,
+      publicId: cloudinaryResult.public_id,
+    });
+  } catch (error) {
+    console.error("Error in temp upload:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to process image upload",
+      message: error.message,
     });
   }
-);
+});
+
+// Legacy route - preserves original functionality without AI detection
+router.post("/image", requireAuth, uploadPermanent.single("image"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No image file provided" });
+  }
+  res.json({
+    imageUrl: req.file.path, // Cloudinary URL
+  });
+});
 
 export default router;

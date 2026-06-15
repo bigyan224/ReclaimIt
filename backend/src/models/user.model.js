@@ -20,6 +20,24 @@ const userSchema = new mongoose.Schema(
       enum: ["USER", "ADMIN"],
       default: "USER",
     },
+    status: {
+      type: String,
+      enum: ["ACTIVE", "FLAGGED", "BANNED"],
+      default: "ACTIVE",
+      index: true,
+    },
+    institutions: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Institution",
+      default: [],
+      index: true,
+    },
+    adminInstitutions: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Institution",
+      default: [],
+      index: true,
+    },
   },
   { timestamps: true }
 );

@@ -60,7 +60,6 @@ const ChatSchema = new mongoose.Schema(
 
 // Compound indexes for efficient queries
 ChatSchema.index({ participants: 1, status: 1, lastMessageAt: -1 });
-ChatSchema.index({ matchedItem: 1 });
 
 // Ensure exactly 2 participants
 ChatSchema.pre("save", function () {

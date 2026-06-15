@@ -7,26 +7,20 @@ import {
   Image, 
   ScrollView, 
   Platform, 
-  Alert
+  Alert,
+  KeyboardAvoidingView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+
 import DateTimePicker from '@react-native-community/datetimepicker';
-let MapView, Marker, UrlTile;
-try {
-  const maps = require('react-native-maps');
-  MapView = maps.default || maps.MapView || maps;
-  Marker = maps.Marker;
-  UrlTile = maps.UrlTile;
-} catch (err) {
-  console.warn('react-native-maps not available:', err?.message || err);
-}
+
 import { useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { getAuthenticatedApi } from '../../services/api';
 import { useItemReportForm } from '../../hooks/useItemReportForm';
 import { getReportFormStyles } from '../../assets/styles/report-form.styles';
 import { useI18n } from '../../i18n/I18nProvider';
+import LeafletMap from '../../components/LeafletMap';
 
 export default function ReportFound() {
   const styles = getReportFormStyles('FOUND');
@@ -42,6 +36,8 @@ export default function ReportFound() {
     { key: 'other', value: 'Other' },
   ];
 
+  const [showInstPicker, setShowInstPicker] = useState(false);
+
   // Use the shared hook
   const {
     formData,
@@ -53,10 +49,13 @@ export default function ReportFound() {
     uploading,
     uploadProgress,
     error,
+    institutions,
+    selectedInstitution,
     setCoords,
     setShowSuggestions,
     reverseGeocode,
     setError,
+    setSelectedInstitution,
     pickImage,
     searchLocations,
     selectLocation,
@@ -91,9 +90,10 @@ export default function ReportFound() {
       category: formData.category,
       brandName: formData.brandName,
       color: formData.color,
-      image: formData.image, // { url, publicId }
+      image: formData.image,
       type: 'FOUND',
       coords,
+      institution: selectedInstitution || undefined,
     };
 
     try {
@@ -117,13 +117,11 @@ export default function ReportFound() {
   };
 
   return (
-     <KeyboardAwareScrollView
-          enableOnAndroid={true}
-          enableAutomaticScroll={true}
-          extraScrollHeight={100}
-          extraHeight={100}
-          style={{ flex: 1 }}
-        >
+    <KeyboardAvoidingView
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      style={{ flex: 1 }}
+    >
       <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t('report.reportFoundTitle')}</Text>
@@ -132,7 +130,6 @@ export default function ReportFound() {
       <ScrollView 
         style={styles.scrollView}
         keyboardShouldPersistTaps="always"
-        nestedScrollEnabled={true}
       >
         {/* Image Upload */}
         <View style={styles.imageSection}>
@@ -244,53 +241,62 @@ export default function ReportFound() {
           </View>
 
           
-            
-            <View style={styles.mapContainer}>
-              {MapView ? (
-              <MapView
-                style={styles.map}
-                region={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
-                  latitudeDelta: 0.02,
-                  longitudeDelta: 0.02,
-                }}
-               onPress={async(e) => {
-        const { latitude, longitude } = e.nativeEvent.coordinate;
-        setCoords({ latitude, longitude });
-        handleInputChange('location', '');
-        const placeName = await reverseGeocode(latitude, longitude);
-        console.log(placeName)
-          if (placeName) {
-    handleInputChange('location', placeName);
-  }
-      }}
+          {institutions.length > 0 && (
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>{t('report.institution')}</Text>
+              <TouchableOpacity
+                style={styles.pickerButton}
+                onPress={() => setShowInstPicker(!showInstPicker)}
               >
-                {UrlTile && (
-                <UrlTile
-                  urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  maximumZ={19}
-                  minimumZ={0}
-                  attribution="© OpenStreetMap contributors"
-                />
-                )}
-
-                <Marker
-                  coordinate={coords}
-                  draggable
-                  onDragEnd={(e) => {
-                    const { latitude, longitude } = e.nativeEvent.coordinate;
-                    setCoords({ latitude, longitude });
-                    handleInputChange('location', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-                  }}
-                />
-              </MapView>
-              ) : (
-                <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5' }]}>
-                  <Ionicons name="map-outline" size={48} color="#ccc" />
-                  <Text style={{ color: '#666', marginTop: 8 }}>{t('report.mapNotAvailable')}</Text>
+                <Text style={[styles.pickerButtonText, !selectedInstitution && { color: '#999' }]}>
+                  {selectedInstitution
+                    ? institutions.find(i => i._id === selectedInstitution)?.name || t('report.selectInstitution')
+                    : t('report.publicListing')}
+                </Text>
+                <Ionicons name={showInstPicker ? 'chevron-up' : 'chevron-down'} size={18} color="#666" />
+              </TouchableOpacity>
+              {showInstPicker && (
+                <View style={styles.pickerDropdown}>
+                  <TouchableOpacity
+                    style={[styles.pickerOption, !selectedInstitution && styles.pickerOptionActive]}
+                    onPress={() => { setSelectedInstitution(''); setShowInstPicker(false); }}
+                  >
+                    <Text style={[styles.pickerOptionText, !selectedInstitution && styles.pickerOptionTextActive]}>{t('report.publicListing')}</Text>
+                  </TouchableOpacity>
+                  {institutions.map(inst => (
+                    <TouchableOpacity
+                      key={inst._id}
+                      style={[styles.pickerOption, selectedInstitution === inst._id && styles.pickerOptionActive]}
+                      onPress={() => { setSelectedInstitution(inst._id); setShowInstPicker(false); }}
+                    >
+                      <Text style={[styles.pickerOptionText, selectedInstitution === inst._id && styles.pickerOptionTextActive]}>{inst.name}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               )}
+            </View>
+          )}
+
+             <View style={styles.mapContainer}>
+              <LeafletMap
+                style={styles.map}
+                region={coords}
+                draggable
+                onPress={async (e) => {
+                  const { latitude, longitude } = e.nativeEvent.coordinate;
+                  setCoords({ latitude, longitude });
+                  handleInputChange('location', '');
+                  const placeName = await reverseGeocode(latitude, longitude);
+                  if (placeName) {
+                    handleInputChange('location', placeName);
+                  }
+                }}
+                onDragEnd={(e) => {
+                  const { latitude, longitude } = e.nativeEvent.coordinate;
+                  setCoords({ latitude, longitude });
+                  handleInputChange('location', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                }}
+              />
             </View>
 
             {locationError && (
@@ -377,6 +383,6 @@ export default function ReportFound() {
           ) : null}
         </ScrollView>
       </View>
-    </KeyboardAwareScrollView>
+    </KeyboardAvoidingView>
   );
 }
