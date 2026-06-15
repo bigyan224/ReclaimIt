@@ -19,7 +19,7 @@
                                            }
                          },
                  "extra":  {
-                               "EXPO_PUBLIC_API_URL":  "http://10.117.47.22:5001/api",
+                               "EXPO_PUBLIC_API_URL":  "https://reclaimit-idf4.onrender.com/api",
                                "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY":  "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
                                "router":  {
 
