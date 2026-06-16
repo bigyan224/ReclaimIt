@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, Pressable, Linking } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useUser, useAuth } from '@clerk/clerk-expo';
@@ -109,7 +109,7 @@ const handleSignOut = async () => {
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => Linking.openURL('mailto:bigyanacharya224@gmail.com')}>
           <Ionicons name="help-circle-outline" size={24} color="#333" />
           <Text style={styles.menuText}>{t('profile.helpSupport')}</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
