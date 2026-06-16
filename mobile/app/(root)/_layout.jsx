@@ -1,5 +1,5 @@
-import { useUser, useAuth } from "@clerk/clerk-expo";
-import { Redirect, useRouter } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
+import { useRouter } from "expo-router";
 import { Stack } from "expo-router/stack";
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
@@ -7,7 +7,6 @@ import { registerBannedCallback } from "../../services/api";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function Layout() {
-  const { isSignedIn, isLoaded } = useUser();
   const { signOut } = useAuth();
   const router = useRouter();
   const [isBanned, setIsBanned] = useState(false);
@@ -35,10 +34,6 @@ export default function Layout() {
       setIsLoggingOut(false);
     }
   };
-
-  if (!isLoaded) return null; // this is for a better ux
-
-  if (!isSignedIn) return <Redirect href={"/sign-in"} />;
 
   if (isBanned) {
     return (
