@@ -7,19 +7,19 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
     padding: 20,
-    justifyContent: "flex-start",
-    paddingTop: 60,
+    justifyContent: "center",
   },
   illustration: {
-    height: 310,
-    width: 300,
+    height: 220,
+    width: 220,
     contentFit: "contain",
+    alignSelf: "center",
   },
   title: {
     fontSize: 32,
     fontWeight: "bold",
     color: COLORS.text,
-    marginVertical: 10,
+    marginVertical: 15,
     textAlign: "center",
   },
   input: {
@@ -105,7 +105,7 @@ export const styles = StyleSheet.create({
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 12,
+    marginVertical: 16,
   },
   divider: {
     flex: 1,
