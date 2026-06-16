@@ -250,7 +250,7 @@ export default function Page() {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
 
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const getTokenRef = useRef(getToken);
   useEffect(() => {
     getTokenRef.current = getToken;
@@ -586,6 +586,19 @@ export default function Page() {
 
     return null;
   };
+
+  if (!isLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF8F3" }}>
+        <ActivityIndicator size="large" color="#8B4513" />
+      </View>
+    );
+  }
+
+  if (!isSignedIn) {
+    router.replace("/sign-in");
+    return null;
+  }
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
