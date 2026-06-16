@@ -9,10 +9,16 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_ANDROID_ARCHITECTURES": "arm64-v8a"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_ANDROID_ARCHITECTURES": "arm64-v8a"
+      }
     }
   },
   "submit": {

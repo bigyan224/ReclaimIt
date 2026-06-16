@@ -83,7 +83,9 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": true
+            "newArchEnabled": true,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
           }
         }
       ]
