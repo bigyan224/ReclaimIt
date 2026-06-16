@@ -1,6 +1,6 @@
 import { useSignIn, useOAuth, useAuth } from "@clerk/clerk-expo";
 import { Link, useRouter } from "expo-router";
-import { Text, TextInput, TouchableOpacity, View, Image, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { Text, TextInput, TouchableOpacity, View, Image, ScrollView, KeyboardAvoidingView, Platform, Linking } from "react-native";
 import { useState } from "react";
 import { styles } from "../../assets/styles/auth.styles";
 import { Ionicons } from "@expo/vector-icons";
@@ -81,6 +81,7 @@ export default function Page() {
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Handle the submission of the sign-in form
   const onSignInPress = async () => {
@@ -176,9 +177,26 @@ export default function Page() {
           secureTextEntry={true}
           onChangeText={(password) => setPassword(password)}
         />
+        <TouchableOpacity
+          style={styles.termsCheckbox}
+          onPress={() => setAgreedToTerms(!agreedToTerms)}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+            {agreedToTerms && <Ionicons name="checkmark" size={16} color="#fff" />}
+          </View>
+          <Text style={styles.termsText}>
+            {t('auth.iAgree')}{' '}
+            <Text style={styles.termsLink} onPress={() => Linking.openURL('https://bigyan224.github.io/ReclaimIt/')}>
+              {t('auth.termsAndPrivacy')}
+            </Text>
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity 
-          style={[styles.googleButton, { backgroundColor: 'white' }]}
+          style={[styles.googleButton, { backgroundColor: 'white' }, !agreedToTerms && { opacity: 0.6 }]}
           onPress={startGoogleSignIn}
+          disabled={!agreedToTerms}
         >
           <Image 
             source={require('../../assets/images/google.png')} 
@@ -193,7 +211,7 @@ export default function Page() {
           <View style={styles.divider} />
         </View>
 
-        <TouchableOpacity style={styles.button} onPress={onSignInPress}>
+        <TouchableOpacity style={[styles.button, !agreedToTerms && { opacity: 0.6 }]} onPress={onSignInPress} disabled={!agreedToTerms}>
           <Text style={styles.buttonText}>{t('auth.signIn')}</Text>
         </TouchableOpacity>
 

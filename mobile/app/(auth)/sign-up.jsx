@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { Text, TextInput, TouchableOpacity, View, ScrollView, KeyboardAvoidingView, Platform, Linking } from "react-native";
 import { useSignUp, useAuth, useOAuth } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { styles } from "@/assets/styles/auth.styles.js";
@@ -280,15 +280,16 @@ export default function SignUpScreen() {
           </View>
           <Text style={styles.termsText}>
             {t('auth.iAgree')}{' '}
-            <Text style={styles.termsLink} onPress={() => router.push('https://bigyan224.github.io/ReclaimIt/')}>
+            <Text style={styles.termsLink} onPress={() => Linking.openURL('https://bigyan224.github.io/ReclaimIt/')}>
               {t('auth.termsAndPrivacy')}
             </Text>
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.googleButton, { backgroundColor: 'white' }]}
+          style={[styles.googleButton, { backgroundColor: 'white' }, !agreedToTerms && { opacity: 0.6 }]}
           onPress={startGoogleSignIn}
+          disabled={!agreedToTerms}
         >
           <Image 
             source={require('../../assets/images/google.png')} 
