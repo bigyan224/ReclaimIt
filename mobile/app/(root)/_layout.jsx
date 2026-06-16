@@ -15,7 +15,6 @@ export default function Layout() {
       router.replace("/sign-in");
     }
   }, [isLoaded, isSignedIn]);
-  const router = useRouter();
   const [isBanned, setIsBanned] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
