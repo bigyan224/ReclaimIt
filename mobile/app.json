@@ -1,89 +1,95 @@
 {
-    "expo":  {
-                 "name":  "ReclaimIt",
-                 "slug":  "ReclaimIt",
-                 "version":  "1.0.0",
-                 "orientation":  "portrait",
-                 "icon":  "./assets/images/icon.png",
-                 "splash":  {
-                                "image":  "./assets/images/splash.png",
-                                "resizeMode":  "contain",
-                                "backgroundColor":  "#ffffff"
-                            },
-                 "scheme":  "mobile",
-                 "userInterfaceStyle":  "automatic",
-                 "ios":  {
-                             "supportsTablet":  true,
-                             "infoPlist":  {
-                                               "NSMicrophoneUsageDescription":  "ReclaimIt uses your microphone to record and send voice messages in chat."
-                                           }
-                         },
-                 "extra":  {
-                               "EXPO_PUBLIC_API_URL":  "https://reclaimit-idf4.onrender.com/api",
-                               "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY":  "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
-                               "router":  {
-
-                                          },
-                               "eas":  {
-                                           "projectId":  "6e6249f0-7d11-4c5e-896d-19f3724ef45b"
-                                       }
-                           },
-                 "android":  {
-                                 "permissions":  [
-                                                     "INTERNET",
-                                                     "ACCESS_FINE_LOCATION",
-                                                     "ACCESS_COARSE_LOCATION",
-                                                     "RECORD_AUDIO",
-                                                     "CAMERA",
-                                                     "READ_EXTERNAL_STORAGE"
-                                                 ],
-                                 "adaptiveIcon":  {
-                                                      "foregroundImage":  "./assets/images/icon.png",
-                                                      "backgroundColor":  "#ffffff"
-                                                  },
-                                 "edgeToEdgeEnabled":  true,
-                                  "package":  "com.bigyan224.mobile"
-                               },
-                 "web":  {
-                             "bundler":  "metro",
-                             "output":  "static",
-                             "favicon":  "./assets/images/favicon.png"
-                         },
-                 "plugins":  [
-                                 "expo-router",
-                                 [
-                                     "expo-splash-screen",
-                                     {
-                                         "image":  "./assets/images/splash.png",
-                                         "imageWidth":  200,
-                                         "resizeMode":  "contain",
-                                         "backgroundColor":  "#ffffff"
-                                     }
-                                 ],
-                                 "expo-web-browser",
-                                 [
-                                     "expo-location",
-                                     {
-                                         "locationAlwaysAndWhenInUsePermission":  "ReclaimIt needs your location to find lost items near you.",
-                                         "locationWhenInUsePermission":  "ReclaimIt needs your location to find lost items near you."
-                                     }
-                                 ],
-                                 [
-                                     "expo-image-picker",
-                                     {
-                                         "photosPermission":  "ReclaimIt needs access to your photos to attach images to item reports.",
-                                         "cameraPermission":  "ReclaimIt needs camera access to take photos of lost or found items."
-                                     }
-                                 ],
-                                 [
-                                     "expo-av",
-                                     {
-                                         "microphonePermission":  "ReclaimIt needs microphone access to record and send voice messages."
-                                     }
-                                 ]
-                             ],
-                 "experiments":  {
-                                     "typedRoutes":  true
-                                 }
-             }
+  "expo": {
+    "name": "ReclaimIt",
+    "slug": "ReclaimIt",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "scheme": "mobile",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "ReclaimIt uses your microphone to record and send voice messages in chat."
+      }
+    },
+    "extra": {
+      "EXPO_PUBLIC_API_URL": "https://reclaimit-idf4.onrender.com/api",
+      "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
+      "router": {},
+      "eas": {
+        "projectId": "6e6249f0-7d11-4c5e-896d-19f3724ef45b"
+      }
+    },
+    "android": {
+      "permissions": [
+        "INTERNET",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.bigyan224.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "ReclaimIt needs your location to find lost items near you.",
+          "locationWhenInUsePermission": "ReclaimIt needs your location to find lost items near you."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ReclaimIt needs access to your photos to attach images to item reports.",
+          "cameraPermission": "ReclaimIt needs camera access to take photos of lost or found items."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "ReclaimIt needs microphone access to record and send voice messages."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": true
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
 }
