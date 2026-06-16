@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, Platform, Alert, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
@@ -9,16 +8,7 @@ import { getAuthenticatedApi } from '../../../services/api';
 import { useItemReportForm } from '../../../hooks/useItemReportForm';
 import { getReportFormStyles } from '../../../assets/styles/report-form.styles';
 import { useI18n } from '../../../i18n/I18nProvider';
-
-let MapView, Marker, UrlTile;
-try {
-  const maps = require('react-native-maps');
-  MapView = maps.default || maps.MapView || maps;
-  Marker = maps.Marker;
-  UrlTile = maps.UrlTile;
-} catch (err) {
-  console.warn('react-native-maps not available:', err?.message || err);
-}
+import LeafletMap from '../../../components/LeafletMap';
 
 export default function EditItem() {
   const params = useLocalSearchParams();
@@ -201,13 +191,8 @@ export default function EditItem() {
   }
 
   return (
-    <KeyboardAwareScrollView
-      enableOnAndroid={true}
-      enableAutomaticScroll={true}
-      extraScrollHeight={100}
-      extraHeight={100}
-      style={{ flex: 1 }}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>
@@ -326,50 +311,25 @@ export default function EditItem() {
           </View>
 
           <View style={styles.mapContainer}>
-            {MapView ? (
-              <MapView
-                style={styles.map}
-                region={{
-                  latitude: coords.latitude,
-                  longitude: coords.longitude,
-                  latitudeDelta: 0.02,
-                  longitudeDelta: 0.02,
-                }}
-                onPress={async (e) => {
-                  const { latitude, longitude } = e.nativeEvent.coordinate;
-                  setCoords({ latitude, longitude });
-                  handleInputChange('location', '');
-                  const placeName = await reverseGeocode(latitude, longitude);
-                  if (placeName) {
-                    handleInputChange('location', placeName);
-                  }
-                }}
-              >
-                {UrlTile && (
-                  <UrlTile
-                    urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    maximumZ={19}
-                    minimumZ={0}
-                    attribution="© OpenStreetMap contributors"
-                  />
-                )}
-
-                <Marker
-                  coordinate={coords}
-                  draggable
-                  onDragEnd={(e) => {
-                    const { latitude, longitude } = e.nativeEvent.coordinate;
-                    setCoords({ latitude, longitude });
-                    handleInputChange('location', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-                  }}
-                />
-              </MapView>
-            ) : (
-              <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5' }]}>
-                <Ionicons name="map-outline" size={48} color="#ccc" />
-                <Text style={{ color: '#666', marginTop: 8 }}>{t('report.mapNotAvailable')}</Text>
-              </View>
-            )}
+            <LeafletMap
+              style={styles.map}
+              region={coords}
+              draggable
+              onPress={async (e) => {
+                const { latitude, longitude } = e.nativeEvent.coordinate;
+                setCoords({ latitude, longitude });
+                handleInputChange('location', '');
+                const placeName = await reverseGeocode(latitude, longitude);
+                if (placeName) {
+                  handleInputChange('location', placeName);
+                }
+              }}
+              onDragEnd={(e) => {
+                const { latitude, longitude } = e.nativeEvent.coordinate;
+                setCoords({ latitude, longitude });
+                handleInputChange('location', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+              }}
+            />
           </View>
 
           {locationError && (
@@ -473,6 +433,7 @@ export default function EditItem() {
           </TouchableOpacity>
         </ScrollView>
       </View>
-    </KeyboardAwareScrollView>
+    </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
