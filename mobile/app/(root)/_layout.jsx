@@ -75,6 +75,18 @@ export default function Layout() {
     );
   }
 
+  if (!isLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF8F3" }}>
+        <ActivityIndicator size="large" color="#8B4513" />
+      </View>
+    );
+  }
+
+  if (!isSignedIn) {
+    return null;
+  }
+
   return <Stack screenOptions={{ headerShown: false }} />;
 }
 
