@@ -134,4 +134,33 @@ export const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
+  termsCheckbox: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  checkboxChecked: {
+    backgroundColor: COLORS.primary,
+  },
+  termsText: {
+    color: COLORS.text,
+    fontSize: 14,
+    flex: 1,
+    lineHeight: 20,
+  },
+  termsLink: {
+    color: COLORS.primary,
+    textDecorationLine: "underline",
+  },
 });

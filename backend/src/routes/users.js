@@ -10,13 +10,11 @@ const router = express.Router();
  * Creates user in Mongo if not exists
  */
 router.post("/", requireAuth, async (req, res) => {
-    console.log("🔥 /api/users hit");
-  console.log("Auth header:", req.headers.authorization?.slice(0, 20));
+  console.log("🔥 /api/users hit");
   try {
-    const { fullName } = req.body;
+    const { fullName, agreedToTerms } = req.body;
     const clerkUserId = req.clerkUserId;
 
-    // Get user from Clerk (secure source)
     const clerkUser = await clerkClient.users.getUser(clerkUserId);
 
     let user = await User.findOne({ clerkId: clerkUserId });
@@ -28,6 +26,8 @@ router.post("/", requireAuth, async (req, res) => {
         name:
           fullName ||
           `${clerkUser.firstName ?? ""} ${clerkUser.lastName ?? ""}`.trim(),
+        agreedToTerms: !!agreedToTerms,
+        agreedToTermsAt: agreedToTerms ? new Date() : null,
       });
     } else if (fullName && !user.name) {
       user.name = fullName;
@@ -38,6 +38,40 @@ router.post("/", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("User sync error:", error);
     res.status(500).json({ error: "Failed to sync user" });
+  }
+});
+
+/**
+ * GET /api/users/me
+ * Returns current user info
+ */
+router.get("/me", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (error) {
+    console.error("Get user error:", error);
+    res.status(500).json({ error: "Failed to fetch user" });
+  }
+});
+
+/**
+ * PATCH /api/users/me/terms
+ * Accept terms of service
+ */
+router.patch("/me/terms", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findOneAndUpdate(
+      { clerkId: req.clerkUserId },
+      { agreedToTerms: true, agreedToTermsAt: new Date() },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (error) {
+    console.error("Accept terms error:", error);
+    res.status(500).json({ error: "Failed to accept terms" });
   }
 });
 

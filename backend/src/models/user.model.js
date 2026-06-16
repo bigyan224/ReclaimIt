@@ -38,6 +38,14 @@ const userSchema = new mongoose.Schema(
       default: [],
       index: true,
     },
+    agreedToTerms: {
+      type: Boolean,
+      default: false,
+    },
+    agreedToTermsAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

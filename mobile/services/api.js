@@ -337,6 +337,24 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         throw error;
       }
     },
+    getCurrentUser: async () => {
+      try {
+        const response = await authenticatedApi.get('/users/me');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+        throw error;
+      }
+    },
+    acceptTerms: async () => {
+      try {
+        const response = await authenticatedApi.patch('/users/me/terms');
+        return response.data;
+      } catch (error) {
+        console.error('Error accepting terms:', error);
+        throw error;
+      }
+    },
   };
 };
 

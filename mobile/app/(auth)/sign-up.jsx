@@ -87,6 +87,7 @@ export default function SignUpScreen() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Handle submission of sign-up form
   const onSignUpPress = async () => {
@@ -163,6 +164,7 @@ export default function SignUpScreen() {
       },
       body: JSON.stringify({
         fullName: name,
+        agreedToTerms,
       }),
     });
     if (!response.ok) {
@@ -268,6 +270,22 @@ export default function SignUpScreen() {
           secureTextEntry={true}
           onChangeText={(password) => setPassword(password)}
         />
+        <TouchableOpacity
+          style={styles.termsCheckbox}
+          onPress={() => setAgreedToTerms(!agreedToTerms)}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+            {agreedToTerms && <Ionicons name="checkmark" size={16} color="#fff" />}
+          </View>
+          <Text style={styles.termsText}>
+            {t('auth.iAgree')}{' '}
+            <Text style={styles.termsLink} onPress={() => router.push('https://bigyan224.github.io/ReclaimIt/')}>
+              {t('auth.termsAndPrivacy')}
+            </Text>
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity 
           style={[styles.googleButton, { backgroundColor: 'white' }]}
           onPress={startGoogleSignIn}
@@ -279,7 +297,7 @@ export default function SignUpScreen() {
           <Text style={[styles.buttonText, { color: 'black' }]}>{t('auth.signInGoogle')}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.button} onPress={onSignUpPress}>
+        <TouchableOpacity style={[styles.button, !agreedToTerms && { opacity: 0.6 }]} onPress={onSignUpPress} disabled={!agreedToTerms}>
           <Text style={styles.buttonText}>{t('auth.signUp')}</Text>
         </TouchableOpacity>
 

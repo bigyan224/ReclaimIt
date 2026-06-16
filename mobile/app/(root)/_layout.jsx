@@ -7,7 +7,14 @@ import { registerBannedCallback } from "../../services/api";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function Layout() {
-  const { signOut } = useAuth();
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace("/sign-in");
+    }
+  }, [isLoaded, isSignedIn]);
   const router = useRouter();
   const [isBanned, setIsBanned] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
