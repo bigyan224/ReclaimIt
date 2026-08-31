@@ -139,7 +139,6 @@ export const reportItem = async (req, res) => {
 
 // Controller to get items with optional type, location, and institution filters
 export const getItems = async (req, res) => {
-  console.log("Fetching items...");
   try {
     const filter = {};
     const { type, near, radius, institution } = req.query;

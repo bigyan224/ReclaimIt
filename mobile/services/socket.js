@@ -194,6 +194,18 @@ class SocketService {
       this.socket.off('messages:read:update', callback);
     }
   }
+
+  onClaimUpdated(callback) {
+    if (this.socket) {
+      this.socket.on('claim:updated', callback);
+    }
+  }
+
+  offClaimUpdated(callback) {
+    if (this.socket) {
+      this.socket.off('claim:updated', callback);
+    }
+  }
 }
 
 // Export singleton instance

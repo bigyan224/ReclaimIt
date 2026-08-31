@@ -530,7 +530,7 @@ export default function Page() {
 
     if (activeTab === "my") {
       return (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} removeClippedSubviews showsVerticalScrollIndicator={false}>
           <RecentItemsList
             items={getFilteredItems()}
             onDelete={(id) => setItems(prev => prev.filter(i => i._id !== id))}
@@ -551,7 +551,7 @@ export default function Page() {
         );
       }
       return (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} removeClippedSubviews showsVerticalScrollIndicator={false}>
           <RecentItemsList
             items={institutionItems}
             onDelete={() => {}}
@@ -573,7 +573,7 @@ export default function Page() {
         );
       }
       return (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} removeClippedSubviews showsVerticalScrollIndicator={false}>
           <RecentItemsList
             items={nearbyItems}
             onDelete={() => {}}
@@ -587,6 +587,10 @@ export default function Page() {
     return null;
   };
 
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) router.replace("/sign-in");
+  }, [isLoaded, isSignedIn]);
+
   if (!isLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF8F3" }}>
@@ -595,10 +599,7 @@ export default function Page() {
     );
   }
 
-  if (!isSignedIn) {
-    router.replace("/sign-in");
-    return null;
-  }
+  if (!isSignedIn) return null;
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>

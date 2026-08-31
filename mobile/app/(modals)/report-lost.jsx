@@ -18,6 +18,7 @@ import { getAuthenticatedApi } from '../../services/api';
 import { useItemReportForm } from '../../hooks/useItemReportForm';
 import { getReportFormStyles } from '../../assets/styles/report-form.styles';
 import { useI18n } from '../../i18n/I18nProvider';
+import NetInfo from '@react-native-community/netinfo';
 import LeafletMap from '../../components/LeafletMap';
 
 export default function ReportLost() {
@@ -75,6 +76,11 @@ export default function ReportLost() {
 
   const handleSubmit = async () => {
     if (!validateForm('LOST')) return;
+    const net = await NetInfo.fetch();
+    if (!net.isConnected) {
+      Alert.alert(t('common.error'), 'You are offline. Please check your internet connection and try again.');
+      return;
+    }
     
     setIsSubmitting(true);
      const token = await getToken({ skipCache: true });

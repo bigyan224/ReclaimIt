@@ -6,6 +6,7 @@ import { ActivityIndicator, View, StatusBar } from "react-native";
 import {CLERK_PUBLISHABLE_KEY} from "../config/env";
 import { I18nProvider } from "../i18n/I18nProvider";
 import { COLORS } from "../constants/colors";
+import OfflineBanner from "@/components/OfflineBanner";
 
 export default function RootLayout() {
   return (
@@ -13,6 +14,7 @@ export default function RootLayout() {
       <ClerkProvider tokenCache={tokenCache} publishableKey={CLERK_PUBLISHABLE_KEY}>
         <StatusBar backgroundColor={COLORS.background} barStyle="dark-content" />
         <SafeScreen>
+          <OfflineBanner />
           <ClerkLoaded>
             <Slot />
           </ClerkLoaded>

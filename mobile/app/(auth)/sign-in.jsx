@@ -1,6 +1,6 @@
 import { useSignIn, useOAuth, useAuth } from "@clerk/clerk-expo";
 import { Link, useRouter } from "expo-router";
-import { Text, TextInput, TouchableOpacity, View, Image, ScrollView, KeyboardAvoidingView, Platform, Linking } from "react-native";
+import { Text, TextInput, TouchableOpacity, View, Image, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useState } from "react";
 import { styles } from "../../assets/styles/auth.styles";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,6 +30,27 @@ export default function Page() {
     }
 
     return null;
+  };
+
+  const redirectAfterAuth = async () => {
+    const token = await getFreshBackendToken();
+    if (token) {
+      try {
+        const res = await fetch(`${API_URL}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.agreedToTerms) {
+            router.replace("/accept-terms");
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Terms check failed:', err);
+      }
+    }
+    router.replace("/");
   };
 
   const startGoogleSignIn = async () => {
@@ -70,7 +91,7 @@ export default function Page() {
           // Continue anyway - user is authenticated in Clerk
         }
 
-        router.replace("/");
+        await redirectAfterAuth();
       }
     } catch (err) {
       console.error('OAuth error', err);
@@ -81,7 +102,6 @@ export default function Page() {
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Handle the submission of the sign-in form
   const onSignInPress = async () => {
@@ -128,7 +148,7 @@ export default function Page() {
           }
         }
         
-        router.replace("/");
+        await redirectAfterAuth();
       } else {
         // If the status isn't complete, check why. User might need to
         // complete further steps.
@@ -177,26 +197,9 @@ export default function Page() {
           secureTextEntry={true}
           onChangeText={(password) => setPassword(password)}
         />
-        <TouchableOpacity
-          style={styles.termsCheckbox}
-          onPress={() => setAgreedToTerms(!agreedToTerms)}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
-            {agreedToTerms && <Ionicons name="checkmark" size={16} color="#fff" />}
-          </View>
-          <Text style={styles.termsText}>
-            {t('auth.iAgree')}{' '}
-            <Text style={styles.termsLink} onPress={() => Linking.openURL('https://bigyan224.github.io/ReclaimIt/')}>
-              {t('auth.termsAndPrivacy')}
-            </Text>
-          </Text>
-        </TouchableOpacity>
-
         <TouchableOpacity 
-          style={[styles.googleButton, { backgroundColor: 'white' }, !agreedToTerms && { opacity: 0.6 }]}
+          style={[styles.googleButton, { backgroundColor: 'white' }]}
           onPress={startGoogleSignIn}
-          disabled={!agreedToTerms}
         >
           <Image 
             source={require('../../assets/images/google.png')} 
@@ -211,7 +214,7 @@ export default function Page() {
           <View style={styles.divider} />
         </View>
 
-        <TouchableOpacity style={[styles.button, !agreedToTerms && { opacity: 0.6 }]} onPress={onSignInPress} disabled={!agreedToTerms}>
+        <TouchableOpacity style={styles.button} onPress={onSignInPress}>
           <Text style={styles.buttonText}>{t('auth.signIn')}</Text>
         </TouchableOpacity>
 

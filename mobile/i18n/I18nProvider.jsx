@@ -1,15 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import { translations } from "./translations";
 
-const STORAGE_KEY = "app_language";
 const DEFAULT_LANGUAGE = "en";
 
 const I18nContext = createContext({
   language: DEFAULT_LANGUAGE,
   setLanguage: () => {},
   t: (key) => key,
-  isHydrated: false,
+  isHydrated: true,
 });
 
 function getValueByPath(obj, key) {
@@ -27,51 +25,16 @@ function interpolate(template, params) {
 }
 
 export function I18nProvider({ children }) {
-  const [language, setLanguageState] = useState(DEFAULT_LANGUAGE);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadLanguage = async () => {
-      try {
-        const savedLanguage = await AsyncStorage.getItem(STORAGE_KEY);
-        if (mounted && savedLanguage && translations[savedLanguage]) {
-          setLanguageState(savedLanguage);
-        }
-      } catch (error) {
-        console.error("Failed to load language setting:", error);
-      } finally {
-        if (mounted) setIsHydrated(true);
-      }
-    };
-
-    loadLanguage();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const setLanguage = useCallback(async (nextLanguage) => {
-    if (!translations[nextLanguage]) return;
-
-    setLanguageState(nextLanguage);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, nextLanguage);
-    } catch (error) {
-      console.error("Failed to persist language setting:", error);
-    }
-  }, []);
+  const language = DEFAULT_LANGUAGE;
+  const setLanguage = useCallback(() => {}, []);
+  const isHydrated = true;
 
   const t = useCallback(
     (key, params) => {
-      const fromSelected = getValueByPath(translations[language], key);
-      const fromDefault = getValueByPath(translations[DEFAULT_LANGUAGE], key);
-      const resolved = fromSelected ?? fromDefault ?? key;
+      const resolved = getValueByPath(translations[DEFAULT_LANGUAGE], key) ?? key;
       return interpolate(resolved, params);
     },
-    [language]
+    []
   );
 
   const value = useMemo(
@@ -81,7 +44,7 @@ export function I18nProvider({ children }) {
       t,
       isHydrated,
     }),
-    [language, setLanguage, t, isHydrated]
+    [t]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

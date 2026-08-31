@@ -34,6 +34,27 @@ export default function SignUpScreen() {
     return null;
   };
 
+  const redirectAfterAuth = async () => {
+    const token = await getFreshBackendToken();
+    if (token) {
+      try {
+        const res = await fetch(`${API_URL}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.agreedToTerms) {
+            router.replace("/accept-terms");
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Terms check failed:', err);
+      }
+    }
+    router.replace("/");
+  };
+
   const startGoogleSignIn = async () => {
     try {
       const { createdSessionId, setActive } = await googleAuth();
@@ -72,7 +93,7 @@ export default function SignUpScreen() {
           // Continue anyway - user is authenticated in Clerk
         }
 
-        router.replace("/");
+        await redirectAfterAuth();
       }
     } catch (err) {
       console.error('OAuth error', err);
@@ -287,9 +308,8 @@ export default function SignUpScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.googleButton, { backgroundColor: 'white' }, !agreedToTerms && { opacity: 0.6 }]}
+          style={[styles.googleButton, { backgroundColor: 'white' }]}
           onPress={startGoogleSignIn}
-          disabled={!agreedToTerms}
         >
           <Image 
             source={require('../../assets/images/google.png')} 

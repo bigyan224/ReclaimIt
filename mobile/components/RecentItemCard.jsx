@@ -1,12 +1,13 @@
-import { View, Text, TouchableOpacity, Image, StyleSheet, Modal, ScrollView, Pressable, TextInput, ActivityIndicator } from "react-native";
-import { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, Pressable, TextInput, ActivityIndicator } from "react-native";
+import { Image } from "expo-image";
+import { useState, memo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
 import { getAuthenticatedApi } from "../services/api";
 import { useI18n } from "../i18n/I18nProvider";
 
-export default function RecentItemCard({ item, onDelete, showDeleteButton = true, currentUserId }) {
+function RecentItemCard({ item, onDelete, showDeleteButton = true, currentUserId }) {
   const router = useRouter();
   const { t } = useI18n();
   const isFound = item.type === "FOUND";
@@ -39,7 +40,7 @@ export default function RecentItemCard({ item, onDelete, showDeleteButton = true
     <View style={styles.wrapper}>
       <View style={styles.card}>
         {thumbUri ? (
-          <Image source={{ uri: thumbUri }} style={styles.thumbnail} />
+          <Image source={{ uri: thumbUri }} style={styles.thumbnail} contentFit="cover" cachePolicy="memory-disk" transition={200} />
         ) : (
           <View style={styles.thumbnailPlaceholder}>
             <Ionicons name="image" size={28} color="#94A3B8" />
@@ -90,7 +91,7 @@ export default function RecentItemCard({ item, onDelete, showDeleteButton = true
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <ScrollView contentContainerStyle={{ padding: 16 }}>
               {thumbUri ? (
-                <Image source={{ uri: thumbUri }} style={styles.modalImage} />
+                <Image source={{ uri: thumbUri }} style={styles.modalImage} contentFit="cover" cachePolicy="memory-disk" transition={200} />
               ) : (
                 <View style={styles.thumbnailPlaceholder}>
                   <Ionicons name="image" size={40} color="#94A3B8" />
@@ -362,3 +363,5 @@ const styles = StyleSheet.create({
   },
 
 });
+
+export default memo(RecentItemCard);

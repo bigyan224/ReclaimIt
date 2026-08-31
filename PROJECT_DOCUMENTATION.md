@@ -31,26 +31,23 @@ Every day, students and commuters lose phones, wallets, IDs, bags, and keys on c
 
 ### 1.2 Solution
 
-**ReclaimIt** is a multilingual, AI-assisted lost-and-found platform that pairs a lost report with a matching found report automatically. It uses three layers of intelligence:
+**ReclaimIt** is an AI-assisted lost-and-found platform that pairs a lost report with a matching found report automatically. It uses two layers of intelligence:
 
-- A **text-based cross-encoder** model that scores 0–100 how similar two reports are (location, title, color, brand, time).
-- A **Google Gemini** fallback model for nuanced descriptions.
-- A **SigLIP2 + DINOv2 ensemble** that flags AI-generated or fraudulent images.
+- A **Google Gemini** model that scores 0–100 how similar two reports are (location, title, color, brand, time).
+- A deterministic **rule-based fallback** (name/description token overlap, exact field matching, time and distance proximity) that runs whenever Gemini is unavailable.
 
 The product is delivered as:
 
 - A cross-platform **React Native (Expo)** mobile app for the public.
-- A **React + Vite** admin portal for moderators (item queue, user bans, AI detection review, matching config, dispute resolution, institution management).
+- A **React + Vite** admin portal for moderators (item queue, user bans, matching config, dispute resolution, institution management).
 - A **Node.js + MongoDB** backend with Socket.io real-time chat.
-- Two **Python** microservices — one FastAPI matcher, one Flask image-forensics service.
 
 ### 1.3 Feature Summary (from `README.md`)
 
 - Report lost or found items with photo, location, brand, color, category, date.
 - Automatic AI matching of lost ↔ found reports.
-- Real-time chat between matched users (text + voice notes with transcription and Hindi/English translation).
-- Multilingual (English / Hindi) UI, persisted in AsyncStorage.
-- AI image authenticity check (gating suspicious uploads for review).
+- Real-time text chat between matched users.
+- English UI.
 - Institution scoping (university domains auto-enrol users as members).
 - Admin moderation, manual match override, ban/flag, dispute transcript viewer.
 
@@ -60,7 +57,7 @@ The product is delivered as:
 - **Found report** — a user reports something they have found.
 - **Match** — when the system thinks a lost and a found report refer to the same item. Each side is then notified and a chat is opened.
 - **Strength** — `strong` (≥70), `medium` (≥50), `weak` (<50) based on the match score.
-- **AI analysis** — a flag stored on the item telling moderators whether the image is likely AI-generated.
+- **Chat** — a real-time conversation between the owner of a lost item and the finder after a match is created.
 
 ---
 
@@ -77,13 +74,11 @@ The product is delivered as:
 | DB                 | shared                                     | MongoDB (Mongoose)                               | mongoose 9                                                                  |
 | Real-time          | `backend/src/config/socket.js`           | Socket.io                                        | socket.io 4.8                                                               |
 | Cloud media        | shared                                     | Cloudinary                                       | cloudinary 2.x, multer-storage-cloudinary                                   |
-| LLM text           | `backend/src/services/geminiMatching.js` | Google Gemini                                    | gemini-2.5-flash                                                            |
-| LLM voice STT/Tx   | `backend/src/controllers/chat.js`        | Google Gemini                                    | gemini-2.5-flash                                                            |
-| Matching model     | `AI/lost_found_matcher.py`               | sentence-transformers CrossEncoder               | cross-encoder/ms-marco-MiniLM-L-6-v2                                        |
-| AI image detection | `ai-detection-service/model.py`          | SigLIP2 + DINOv2 (LoRA)                          | google/siglip2-so400m-patch14-384, vit_large_patch14_dinov2.lvd142m         |
+| LLM matching       | `backend/src/services/geminiMatching.js` | Google Gemini                                    | gemini-2.5-flash                                                            |
+| Matching fallback  | `backend/src/controllers/matching.js`    | deterministic rule-based scoring                 | Jaccard similarity + field weights                                          |
 | Object storage     | shared                                     | Cloudinary (images), local `temp/` (transient) |                                                                             |
 | Maps               | `mobile/app/(modals)/report-lost.jsx`    | react-native-maps + OSM tiles                    | react-native-maps 1.20                                                      |
-| Voice notes        | `mobile/app/chat-conversation.jsx`       | expo-av                                          |                                                                             |
+| Chat               | `mobile/app/chat-conversation.jsx`       | text messaging via Socket.io                   |                                                                             |
 | Background jobs    | `backend/src/config/cron.js`             | node-cron                                        | cron 4.x                                                                    |
 
 ### 2.2 Environment Variables (from `.env` files)
@@ -102,9 +97,7 @@ The product is delivered as:
 | `CLOUDINARY_ITEMS_FOLDER`                              | Default `reclaimit/items`                            |
 | `GEMINI_API_KEY`                                       | Google Gemini key                                      |
 | `GEMINI_MODEL`                                         | Default `gemini-2.5-flash`                           |
-| `MATCH_PROVIDER`                                       | `mixed` / `local` / `gemini` (default `mixed`) |
-| `AI_DETECTION_SERVICE_URL`                             | Default `http://127.0.0.1:5002`                      |
-| `AI_DETECTION_ENABLED`                                 | `true` / `false`                                   |
+| `MATCH_PROVIDER`                                       | `gemini` (default `gemini`)              |
 
 **`mobile/.env`**
 
@@ -116,15 +109,11 @@ The product is delivered as:
 - `VITE_CLERK_PUBLISHABLE_KEY`
 - `VITE_API_URL`
 
-**`AI/` overrides**
-
-- `MATCHER_MODEL_DIR` (defaults to `<repo>/AI/models`)
-
 ---
 
 ## 3. System Architecture
 
-ReclaimIt follows a **service-oriented architecture** with five independently deployable services. The mobile and admin clients never talk to the AI services directly — they always go through the backend, which acts as an API gateway and orchestration layer.
+ReclaimIt follows a **service-oriented architecture** with three independently deployable services. The mobile and admin clients never talk to the AI services directly — they always go through the backend, which acts as an API gateway and orchestration layer. All matching AI is cloud-hosted (Google Gemini), so no local ML services need to run.
 
 ### 3.1 High-Level Diagram
 
@@ -137,11 +126,6 @@ flowchart LR
 
     subgraph Gateway
         B[Backend<br/>Node + Express + Socket.io<br/>:5001]
-    end
-
-    subgraph ML Services
-        F[AI Image Detection<br/>Flask + SigLIP2 + DINOv2<br/>:5002]
-        X[Lost-Found Matcher<br/>FastAPI + CrossEncoder<br/>:8000]
     end
 
     subgraph Cloud
@@ -164,11 +148,7 @@ flowchart LR
     B -- Verify JWT --> K
     B -- Persist --> D
     B -- Upload / delete --> C
-    B -- POST /detect --> F
-    B -- POST /score --> X
     B -- Generate text --> G
-    F -- HuggingFace Hub --> H[(HF model weights)]
-    X -- Local model --> Y[(safetensors)]
 ```
 
 ### 3.2 Request Flow (Plain English)
@@ -177,10 +157,9 @@ flowchart LR
 2. Clerk returns a JWT, which the client attaches to every request as `Authorization: Bearer <token>`.
 3. The backend **verifies** the token (`backend/src/middleware/clerkAuth.js`), finds or creates the user in MongoDB (`utils/userSync.js`), and gates admin routes with `adminAuth.middleware.js`.
 4. Business logic lives in **controllers** under `backend/src/controllers/` and `backend/src/admin/controllers/`. They use **models** (Mongoose) and **services** for AI.
-5. For matching, the backend first calls the **local FastAPI matcher** (`AI/matcher_api.py`) which returns a 0–100 score. If `MATCH_PROVIDER=mixed` and the local score is borderline, it falls back to **Gemini** (`backend/src/services/geminiMatching.js`).
-6. For every uploaded image, the backend calls the **Flask AI detection** service (`ai-detection-service/app.py`) which returns an `aiProbability`. The result is bucketed into `AI_Generated`, `Possibly_AI_Generated`, `AI_Flags_Present`, `Likely_Genuine`, or `Analysis_Failed` and stored on the item.
-7. Real-time chat runs over **Socket.io** with the same JWT verification on connection (`backend/src/config/socket.js`).
-8. All long-lived images are in **Cloudinary**; temporary upload-then-detect files live on disk under `backend/temp/` and are pruned every 30 min by a cron job (`config/tempImageCleanup.js`).
+5. For matching, the backend calls **Gemini** (`backend/src/services/geminiMatching.js`) which returns a 0–100 score. If Gemini is unavailable, it falls back to the deterministic rule-based scorer in `controllers/matching.js`.
+6. Real-time chat runs over **Socket.io** with the same JWT verification on connection (`backend/src/config/socket.js`).
+7. All long-lived images are in **Cloudinary**; temporary uploads live in the `reclaimit/temp` Cloudinary folder and are pruned every 30 min by a cron job (`config/tempImageCleanup.js`).
 
 ### 3.3 Sequence — "User reports a found item"
 
@@ -188,27 +167,22 @@ flowchart LR
 sequenceDiagram
     participant App as Mobile App
     participant B as Backend
-    participant F as AI Detection (:5002)
     participant C as Cloudinary
     participant D as MongoDB
-    participant X as Matcher (:8000)
     participant G as Gemini
     participant S as Socket.io
 
     App->>B: POST /api/upload/temp (multipart)
-    B->>F: POST /detect (image bytes)
-    F-->>B: {aiProbability, isAiGenerated, ...}
-    B->>C: upload (folder: reclaimit/items)
+    B->>C: upload (folder: reclaimit/temp)
     C-->>B: {secure_url, public_id}
-    B-->>App: {image: {url, publicId, aiAnalysis}}
+    B-->>App: {image: {url, publicId}}
 
     App->>B: POST /api/items {type:FOUND, image, ...}
     B->>D: insert Item
-    B->>X: POST /score (sourceItem, candidates)
-    X-->>B: [{candidateId, matchScore}, ...]
-    alt MATCH_PROVIDER = mixed and score is borderline
-        B->>G: prompt with item pair
-        G-->>B: {matchScore, breakdown}
+    B->>G: prompt with item pair (sourceItem, candidates)
+    G-->>B: [{candidateId, matchScore}, ...]
+    alt Gemini unavailable
+        B->>B: rule-based fallback scoring
     end
     B->>D: persist MatchedItem
     B->>D: create Notification for each user
@@ -224,7 +198,7 @@ sequenceDiagram
 ```
 D:\Downloads\Reclaimit\
 ├── README.md                  # Top-level feature list and quickstart
-├── start-dev.bat              # Windows launcher for all 5 services
+├── start-dev.bat              # Windows launcher for all 3 services
 ├── update-ip.ps1              # Patches mobile/app.json with current WiFi IPv4
 ├── ReClaimIt1.pdf             # Original problem statement / report
 │
@@ -265,7 +239,7 @@ D:\Downloads\Reclaimit\
 │   ├── src/
 │   │   ├── main.jsx           # ClerkProvider + createRoot
 │   │   ├── App.jsx            # AuthGate + Layout + 7 tab pages
-│   │   ├── components/        # AuthGate, Layout, AIAnalysisCard, ui
+│   │   ├── components/        # AuthGate, Layout, ui
 │   │   ├── pages/             # Dashboard, Moderation, Users, Institutions,
 │   │   │                        Matching, Disputes, Settings
 │   │   ├── services/adminApi.js
@@ -275,7 +249,7 @@ D:\Downloads\Reclaimit\
 │   ├── public/reclaimit-logo.png
 │   └── package.json
 │
-├── backend/                   # Express + Mongoose + Socket.io API
+└── backend/                   # Express + Mongoose + Socket.io API
 │   ├── package.json
 │   ├── .env
 │   ├── temp/                  # Short-lived uploads before Cloudinary push
@@ -290,8 +264,7 @@ D:\Downloads\Reclaimit\
 │       │                       # notifications, chat, institutions
 │       ├── controllers/       # items, matching, chat, notifications,
 │       │                       # institutions
-│       ├── services/          # geminiMatching, localMatcher,
-│       │                       # metadataAnalysisService
+│       ├── services/          # geminiMatching
 │       ├── admin/
 │       │   ├── routes.js
 │       │   ├── controllers/   # dashboard, items, users, matching,
@@ -301,30 +274,8 @@ D:\Downloads\Reclaimit\
 │       │   └── utils/         # matchingConfig, constants, ids,
 │       │                       # pagination, slugify
 │       └── utils/userSync.js  # getOrCreateUser, syncUserInstitutionMembership
-│
-├── AI/                        # FastAPI cross-encoder matcher
-│   ├── matcher_api.py         # POST /score, GET /health
-│   ├── lost_found_matcher.py  # LostFoundMatcher class (SentenceTransformers)
-│   ├── train_lost_found_matcher.py   # Cross-encoder fine-tuning
-│   ├── generate_lost_found_dataset.py # 12k synthetic items + 30k pairs
-│   ├── requirements-ml.txt    # torch, sentence-transformers, fastapi, ...
-│   ├── models/                # model.safetensors + tokenizer + metadata
-│   └── datasets/lost_found_matching/
-│       ├── items.json
-│       └── training_pairs.json
-│
-└── ai-detection-service/      # Flask SigLIP2 + DINOv2 AI image detector
-    ├── app.py                 # /detect and /health
-    ├── model.py               # EnsembleAIDetector, LoRALinear
-    ├── test_service.py        # CLI smoke test
-    ├── start.bat              # Windows wrapper
-    ├── requirements.txt       # flask, transformers, torch, timm, peft
-    ├── models/
-    │   ├── pytorch_model.pt   # Fine-tuned ensemble weights
-    │   ├── siglip2/           # (optional) SigLIP2 weights
-    │   └── dinov2/            # (optional) DINOv2 weights
-    └── README.md / QUICK_START.md / SETUP_GUIDE.md
 ```
+
 
 ---
 
@@ -368,7 +319,7 @@ erDiagram
         string brandName
         string location.name
         GeoJSON location.coordinates
-        Object image { url, publicId, aiAnalysis, isAiGenerated, aiProbability, realProbability }
+        Object image { url, publicId }
         string status "ACTIVE | FLAGGED | ARCHIVED | MATCHED | CLAIMED"
         Date date
     }
@@ -384,9 +335,8 @@ erDiagram
         ObjectId _id
         ObjectId chatId
         ObjectId sender
-        string type "text | image | voice | system"
+        string type "text | system"
         string content
-        Object audio { publicId, duration, mime, transcript{ en, hi, unknown } }
         ObjectId[] readBy
         string status "sent | delivered | read"
     }
@@ -434,9 +384,9 @@ erDiagram
 ### 5.2 Important Schema Rules
 
 - **User** (`backend/src/models/user.model.js`): indexed on `clerkId` and `email`; `role` defaults to `USER`. `status` can be `ACTIVE`/`BANNED`/`FLAGGED`. Ban and role are updated by the admin portal.
-- **Item** (`item.model.js`): `type` is locked to `LOST` or `FOUND`. The image object records Cloudinary `url`/`publicId` and an `aiAnalysis` bucket enum: `AI_Generated | Possibly_AI_Generated | AI_Flags_Present | Likely_Genuine | Analysis_Failed`. `location.coordinates` is a `GeoJSON Point` (`[lng, lat]`) — required for the geo-distance scoring.
+- **Item** (`item.model.js`): `type` is locked to `LOST` or `FOUND`. The image object records the Cloudinary `url`/`publicId`. `location.coordinates` is a `GeoJSON Point` (`[lng, lat]`) — required for the geo-distance scoring.
 - **Chat** (`chat.model.js`): a pre-save hook asserts **exactly two** participants. `unreadCount` is a `Map<userId, number>`. The chat is linked to one or more `items` and optionally a `matchedItem`.
-- **Message** (`message.model.js`): `type ∈ {text, image, voice, system}`. Voice messages carry `audio.publicId`, `duration`, `mime`, and a `transcript` map keyed `en | hi | unknown`. The backend stores both `transcriptText` and `translatedText` for inline translation.
+- **Message** (`message.model.js`): `type ∈ {text, system}` — plain text messages with read receipts.
 - **MatchedItem** (`matchedItem.model.js`): 0–100 `matchScore` plus a pre-computed `matchStrength` (`strong ≥ 70`, `medium ≥ 50`, `weak < 50`). `breakdown` is the per-axis contribution (location, title, brand, color) so the admin UI can show dial widgets. `notifications` flags track whether each user has been pinged.
 - **Notification** (`notification.model.js`): per-user feed used for in-app toasts and the bell badge.
 - **Institution** (`institution.model.js`): `emailDomains` and `adminEmails` are normalized to lowercase and trimmed; `slug` is unique. The sync helper `syncUserInstitutionMembership` in `utils/userSync.js` matches a user's email domain or the explicit `adminEmails` array to attach memberships and promote admins.
@@ -491,18 +441,10 @@ All routes are mounted under `/api` in `backend/src/app.js`. Authenticated route
 
 | Method | Path                  | Purpose                                                                                                                                              |
 | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/upload/temp`  | Multipart upload →`temp/` disk → AI detection call → Cloudinary push → return `{url, publicId, aiAnalysis}`. The local file is then deleted. |
+| POST   | `/api/upload/temp`  | Multipart upload → local disk → Cloudinary push to `reclaimit/temp` → return `{url, publicId}`. The local file is then deleted. |
 | POST   | `/api/upload/image` | Direct Cloudinary upload for things like chat attachments.                                                                                           |
 
-The temp route is the only one that triggers the Flask AI detection service. It is implemented in `services/metadataAnalysisService.js` with three threshold bands:
-
-- `aiProbability ≥ 0.70` → `AI_Generated`
-- `0.50 ≤ p < 0.70` → `Possibly_AI_Generated`
-- `0.30 ≤ p < 0.50` → `AI_Flags_Present`
-- `p < 0.30` → `Likely_Genuine`
-- On error → `Analysis_Failed`
-
-The axios call has a 120 s timeout, so the route degrades gracefully even if the Python service is offline.
+The temp route keeps a copy of uploaded images in Cloudinary's `reclaimit/temp` folder; `tempImageCleanup.js` removes them once they are no longer referenced by any `Item`.
 
 ### 6.5 Matching — `backend/src/routes/matching.js`
 
@@ -529,9 +471,6 @@ The axios call has a 120 s timeout, so the route degrades gracefully even if the
 | POST   | `/api/chats`                         | Get-or-create a chat between two users.                    |
 | GET    | `/api/chats/:id/messages`            | Message history.                                           |
 | POST   | `/api/chats/:id/messages`            | Send a text message.                                       |
-| POST   | `/api/chats/:id/voice`               | Send a voice message (multipart, runs through Gemini STT). |
-| POST   | `/api/chats/messages/:id/transcribe` | Generate the English transcript on demand.                 |
-| POST   | `/api/chats/messages/:id/translate`  | Generate a Hindi/English translation on demand.            |
 | DELETE | `/api/chats/:id`                     | Soft delete (status `archived` or `blocked`).          |
 
 ### 6.8 Institutions — `backend/src/routes/institutions.js`
@@ -615,34 +554,29 @@ sequenceDiagram
 
 `userSync.getOrCreateUser` (in `backend/src/utils/userSync.js`) is idempotent — the same Clerk id always yields the same Mongo user. The membership helper scans every active institution and adds the user to any whose `emailDomains` or `adminEmails` array matches their email.
 
-### 7.2 Report Found Item (with AI Image Check)
+### 7.2 Report Found Item
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant App as Mobile App
     participant B as Backend
-    participant F as AI Detection (:5002)
     participant C as Cloudinary
     participant D as MongoDB
-    participant X as Matcher (:8000)
     participant G as Gemini
 
     U->>App: Open "Report Found"
     U->>App: Pick photo, fill form, choose map pin
     App->>B: POST /api/upload/temp (image bytes)
-    B->>F: POST /detect
-    F-->>B: {aiProbability, isAiGenerated, ...}
     B->>C: cloudinary.uploader.upload
     C-->>B: {secure_url, public_id}
-    B-->>App: {image:{url, publicId, aiAnalysis}}
+    B-->>App: {image:{url, publicId}}
     App->>B: POST /api/items {type:FOUND, ...}
     B->>D: insert Item
-    B->>X: POST /score (sourceItem, candidates)
-    X-->>B: candidates scored
-    alt mixed mode + low local confidence
-        B->>G: prompt with item pair
-        G-->>B: {matchScore, breakdown}
+    B->>G: prompt with item pair (sourceItem, candidates)
+    G-->>B: candidates scored
+    alt Gemini unavailable
+        B->>B: rule-based fallback scoring
     end
     B->>D: persist MatchedItem + Notification
     B-->>App: {item, matches}
@@ -672,12 +606,10 @@ sequenceDiagram
     API->>API: mark readBy + status=read
 ```
 
-Voice notes follow the same path but with `POST /api/chats/:id/voice` (multipart). The backend streams the file to Cloudinary, then asks Gemini to transcribe (English by default). On demand the recipient can request a translation; results are cached on the `message.transcript` object.
-
 ### 7.4 Admin Triage Flow
 
 1. Admin opens the **Moderation** tab. The page hits `GET /api/admin/items?status=...&search=...` and shows the unified queue.
-2. The detail panel renders `AIAnalysisCard` (`admin-web/src/components/AIAnalysisCard.jsx`) which colours the result based on `aiAnalysis.isAiGenerated` and shows AI vs Real probabilities.
+2. The detail panel shows the item's photo, metadata, and full match breakdown.
 3. Admin clicks **Approve / Flag / Block / Delete** — each maps to a small set of admin endpoints described in §6.9.
 4. For matching, admin can adjust the **threshold** and **weights** in the **AI Matching** tab. The settings are written to `adminconfigs` and re-read on every request via `admin/utils/matchingConfig.js`.
 
@@ -718,22 +650,21 @@ The mobile app is a **file-based router** (expo-router 6). Each folder under `ap
 #### Chat Conversation (`app/chat-conversation.jsx`)
 
 - Subscribes to `message:new`, `typing:start/stop`, and presence events.
-- Renders messages with read-receipt ticks and a "Transcribe (EN)" / "Translate" button per voice message.
-- Records voice with `expo-av`'s `Audio.Recording`, uploads via `useImageUpload.js`, then calls `POST /api/chats/:id/voice`.
+- Renders text messages with read-receipt ticks.
 
 #### Services & Hooks
 
-- `services/api.js` — single axios instance. `getAuthenticatedApi(token, getTokenFn)` attaches a Bearer token and exposes `getItems`, `reportItem`, `uploadTempImage`, `sendMessage`, `sendVoiceMessage`, `translateMessage`, `transcribeMessage`, `deleteItem`, `getMyItems`, `getMatches`, `respondToMatch`, `getNotifications`, `markNotificationRead`, `deleteChat`. A 401 response triggers a token refresh; a 403 with `banned=true` triggers the global ban UI.
+- `services/api.js` — single axios instance. `getAuthenticatedApi(token, getTokenFn)` attaches a Bearer token and exposes `getItems`, `reportItem`, `uploadTempImage`, `sendMessage`, `deleteItem`, `getMyItems`, `getMatches`, `respondToMatch`, `getNotifications`, `markNotificationRead`, `deleteChat`. A 401 response triggers a token refresh; a 403 with `banned=true` triggers the global ban UI.
 - `services/socket.js` — `SocketService` class with `connect`, `disconnect`, `joinChat`, `sendMessage`, `sendTyping`, `markRead`, and listener registration helpers. Uses `socket.io-client`.
 - `config/env.js` — reads `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` from `app.json` `extra` and throws at startup if they are missing.
 - `hooks/useItemReportForm.js` — orchestrates: location permission, reverse geocoding fallback, image upload, suggestions, and form validation. Returns the form state and submit handler.
 - `hooks/useImageUpload.js` — `uploadImage(uri, onProgress)` posts to `/api/upload/temp` with `image/jpeg`. Falls back to a simulated 0–100% progress curve if the server doesn't emit progress events.
-- `i18n/I18nProvider.jsx` + `i18n/translations.js` — `I18nProvider` keeps `language` in React state, mirrors it to AsyncStorage (`app_language`), and provides `t('section.key', {param: 'value'})`. The translation object is a flat key→string map for English and Hindi.
+- `i18n/I18nProvider.jsx` + `i18n/translations.js` — `I18nProvider` provides `t('section.key', {param: 'value'})` for English text lookup.
 
 #### Components
 
 - `components/RecentItemCard.jsx` — list-row with eye/trash buttons. Eye opens a detail modal (location, category, brand, color, description). Trash requires typing the literal word `delete` to confirm.
-- `components/BottomNavBar.jsx` — 3-tab nav (Home / Chat / Profile) with localized labels.
+- `components/BottomNavBar.jsx` — 3-tab nav (Home / Chat / Profile).
 - `components/RecentItemsList.jsx` — wrapper that shows a friendly empty state.
 - `components/PageLoader.jsx` and `components/SafeScreen.jsx` — utility wrappers.
 - `components/SignOutButton.jsx` — confirmation alert then `useClerk().signOut()`.
@@ -768,7 +699,6 @@ The admin web is a single-page React 19 app styled with hand-rolled CSS (`styles
 
 - `AuthGate.jsx` — `<SignedOut>` shows a branded sign-in splash with a Clerk `SignInButton`; `<SignedIn>` renders the app shell.
 - `Layout.jsx` — fixed left sidebar with the seven nav buttons, brand block, and a security card. Top bar shows the active tab title, the API base URL pill, a notification bell, and a `<UserButton>` for sign-out.
-- `AIAnalysisCard.jsx` — colour-coded result card with AI vs Real probabilities, confidence bar, and a narrative summary.
 - `ui.jsx` — `PanelTitle`, `AlertRow`, `Badge`, `Info`, `ItemThumb`, `Dial` (recharts pie), `ConfigRange` (range input with label), `EmptyState`.
 
 #### Pages
@@ -784,7 +714,7 @@ The admin web is a single-page React 19 app styled with hand-rolled CSS (`styles
 #### Services
 
 - `services/adminApi.js` — `createAdminApi(getToken)` returns an object with one method per admin endpoint. The `request` helper injects the Clerk JWT and parses JSON. `toQuery` builds `URLSearchParams` while skipping empty values and the literal `"All"`.
-- `utils/adminMappers.js` — converts Mongoose docs into the flattened shapes the UI expects (id, title, owner, status, image, aiAnalysis, etc.). `buildAnalytics` merges the dashboard's item volume and match volume into the chart series.
+- `utils/adminMappers.js` — converts Mongoose docs into the flattened shapes the UI expects (id, title, owner, status, image, etc.). `buildAnalytics` merges the dashboard's item volume and match volume into the chart series.
 - `data/mockData.js` — fallback numbers, nav list, and a category list used while real data loads.
 
 ---
@@ -836,19 +766,17 @@ Each route file in `backend/src/routes/` is a thin wrapper around its controller
 - `controllers/items.js` — create / list / update / delete + status transitions. After every create or relevant update, it calls `matchingController.autoMatchNewItem`.
 - `controllers/matching.js` — `autoMatchNewItem` (the workhorse), `findMatches`, and a `respond` handler. The auto-match flow:
   1. Pulls the opposite-type candidates within 20 km (`MIN_MATCH_SCORE = 40`).
-  2. For each candidate, calls the **local matcher** (`services/localMatcher.js`) which POSTs to `http://127.0.0.1:8000/score`.
-  3. If `MATCH_PROVIDER === 'mixed'` and the local score is borderline, calls `services/geminiMatching.js` for a richer breakdown.
+  2. For each candidate, calls `services/geminiMatching.js` (Gemini) for a 0–100 score.
+  3. If Gemini is unavailable, falls back to the deterministic rule-based scorer (`scoreCandidatesWithRuleFallback`) in the same controller.
   4. Computes weighted scores using the live `matchingConfig` from `admin/utils/matchingConfig.js`.
   5. Persists `MatchedItem` for each pair above threshold, sends a `Notification` to both users, and emits a Socket.io event.
-- `controllers/chat.js` — `getOrCreateChat`, list, send text, send voice (with Cloudinary + Gemini STT), transcribe on demand, translate on demand, delete.
+- `controllers/chat.js` — `getOrCreateChat`, list, send text, delete.
 - `controllers/notifications.js` — paginated read, mark single/all read, delete.
 - `controllers/institutions.js` — public read endpoints, scoped by membership.
 
 ### 9.5 Services
 
 - `services/geminiMatching.js` — formats a JSON-only prompt for `gemini-2.5-flash`, returns a `matchScore` 0–100 plus per-axis scores. Helpers: `clamp`, `parseJsonFromText` (handles code-fenced JSON in Gemini responses).
-- `services/localMatcher.js` — `scoreCandidates(sourceItem, candidates)` POSTs to `AI/matcher_api.py` with a 30 s `AbortController` timeout. Returns `null` on failure so the controller can decide to fall back to Gemini.
-- `services/metadataAnalysisService.js` — calls the Flask `/detect` endpoint. Buckets the result into the 5-state enum. 120 s axios timeout, graceful degradation.
 
 ### 9.6 Real-time Layer
 
@@ -880,26 +808,6 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 - `admin/utils/matchingConfig.js` reads/writes the config with sensible defaults (`minimumScore = 70`, weights `45/30/15/10`).
 - `admin/utils/constants.js` defines `getMatchStrength(score)` (70/50 cut-off) and other enums.
 
-### 9.9 AI Match Service (`AI/`)
-
-- `matcher_api.py` — FastAPI app exposing `POST /score` and `GET /health`. On startup it loads `LostFoundMatcher(model_dir)`.
-- `lost_found_matcher.py` — `LostFoundMatcher` class wrapping a `sentence_transformers.CrossEncoder`. Builds the input text per item using `item_to_match_text`, which formats type, title, description, category, color, brand, date, location name, coordinates, and (for the cross-item view) the Haversine distance.
-- `train_lost_found_matcher.py` — fine-tunes a cross-encoder with group-aware splitting (avoids leakage), balanced positive/negative pairs, validation/test metrics, and writes `matcher_metadata.json`. Default base model: `cross-encoder/ms-marco-MiniLM-L-6-v2`. The bundled `matcher_metadata.json` reports `accuracy/precision/recall/f1 = 1.0` on the synthetic test set.
-- `generate_lost_found_dataset.py` — generates **12 000 items** in 30 000 balanced pairs across 3 000 group archetypes. Categories: electronics, documents, clothing, accessories, other. Locations: 30 real-world landmarks across Nepal and India. Colors, brands, and details are sampled from category-specific dictionaries.
-- `models/model.safetensors` and `models/tokenizer.json` ship the pre-trained weights.
-
-### 9.10 AI Image Detection Service (`ai-detection-service/`)
-
-- `app.py` — Flask app exposing `POST /detect` (multipart `image`) and `GET /health`. On boot it tries to load `models/pytorch_model.pt`; if missing, it pulls the public HuggingFace repo `Bombek1/ai-image-detector-siglip-dinov2` and caches the weight.
-- `model.py` — defines:
-  - `LoRALinear` — a custom LoRA layer wrapping DINOv2's QKV linear projections.
-  - `ClassificationHead` — LayerNorm + MLP + GELU + Dropout that maps the concatenated SigLIP2 + DINOv2 features to a single logit.
-  - `EnsembleAIDetector` — runs SigLIP2 (`google/siglip2-so400m-patch14-384`) and DINOv2 (`vit_large_patch14_dinov2.lvd142m`) in parallel and concatenates their pooled features.
-  - `create_model_with_lora` — applies PEFT LoRA to SigLIP2 (`q_proj`/`v_proj`) and the custom `LoRALinear` to DINOv2's QKV.
-  - `AIImageDetector` — high-level API. `predict(image)` preprocesses the image with the SigLIP2 processor and a torchvision transform (BICUBIC resize to 392, ImageNet normalization), runs a forward pass, applies a sigmoid, and returns `{probability, prediction, confidence}`.
-- `test_service.py` — CLI smoke test for `/health` and `/detect`.
-- `start.bat` — Windows wrapper that runs `python app.py`.
-
 ---
 
 ## 10. Security & Validation
@@ -909,13 +817,11 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 | Authentication         | All clients use**Clerk** (hosted). The backend never stores passwords. JWTs are verified on every request via `@clerk/clerk-sdk-node` (`clerkAuth.js`).                                                                                     |
 | Authorization          | `requireAuth` gates every non-public route. `requireAdmin` (in `admin/middleware/adminAuth.middleware.js`) checks `publicMetadata.role` first, then falls back to the Mongo user, ensuring both Clerk metadata and DB are aligned.            |
 | Banning                | When an admin sets a user to `BANNED`, the next request fails `requireAuth` with HTTP 403. The mobile API client's response interceptor (`services/api.js`) detects `banned: true` and triggers a global ban modal that only offers sign-out. |
-| Image abuse            | Every uploaded image is run through the SigLIP2 + DINOv2 ensemble before being accepted. The 5-state result is stored on the item and shown in the admin's `AIAnalysisCard`.                                                                        |
 | Data loss prevention   | `tempImageCleanup.js` cron job prevents orphaned Cloudinary objects. The HTTP keep-alive ping in `cron.js` keeps the backend alive on free-tier hosts.                                                                                            |
 | File size              | Multer's disk storage is bounded by the request body parser limits. Image-extension regex on the Item model rejects unexpected file types.                                                                                                            |
 | CORS                   | Configured centrally in `app.js` to allow the admin web origin and the mobile dev server.                                                                                                                                                           |
 | Body limits            | `express.json` is left at default for routes; multer handles multipart bodies.                                                                                                                                                                      |
 | Secrets                | All secrets live in `backend/.env` (Mongo, Clerk, Cloudinary, Gemini). The mobile and admin web only see publishable keys.                                                                                                                          |
-| Voice data             | Voice notes are stored in Cloudinary; transcripts and translations are stored as plain strings on the message document.                                                                                                                               |
 | Socket security        | Socket.io handshake is gated by Clerk token verification (`io.use` middleware). Only authenticated users can join chat rooms.                                                                                                                       |
 | Admin override         | The `POST /api/admin/matching/override` route allows the admin to force a match even with a 100 score. This is intentionally privileged and only accessible by admins.                                                                              |
 | User-generated content | `requireAuth` and ownership checks on item updates/deletes. Admins can override but every change is reflected in the audit log.                                                                                                                     |
@@ -926,13 +832,13 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 
 ### 11.1 Choosing an AI stack
 
-**Decision:** Use a *local* cross-encoder for matching and a *self-hosted* SigLIP2 + DINOv2 ensemble for image detection, with Gemini as a fallback.
-**Why:** The product is a college project and must run on free / cheap infrastructure. The cross-encoder gives reproducible 0–100 scores without an API bill, and the image detector is privacy-preserving (no image leaves the server). Gemini is kept as a fallback because LLM reasoning is great for noisy free-text descriptions.
+**Decision:** Use cloud **Google Gemini** for semantic matching with a deterministic rule-based fallback. No self-hosted ML models.
+**Why:** The product must run on free / cheap infrastructure. Gemini provides broad world knowledge and handles noisy, real-world free-text descriptions out of the box with zero training pipeline and zero serving infrastructure. When Gemini is unavailable (missing API key, API outage), the rule-based scorer keeps matching functional.
 
-### 11.2 Mixed matching provider
+### 11.2 Gemini provider with rule-based fallback
 
-**Decision:** `MATCH_PROVIDER=mixed` by default, calling the local matcher first and Gemini only when the local score is borderline.
-**Why:** A fast, cheap local pass handles the long tail. Gemini is reserved for cases where the text is sparse or the local model is uncertain, which balances cost and quality.
+**Decision:** `MATCH_PROVIDER=gemini` by default, calling Gemini for every candidate. If Gemini is unavailable, the deterministic rule-based scorer takes over.
+**Why:** Gemini gives the highest-quality matches for noisy free text. The rule-based fallback guarantees the pipeline never crashes or silently fails — matching just becomes less accurate until Gemini recovers.
 
 ### 11.3 Auth in three different runtimes
 
@@ -941,28 +847,28 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 
 ### 11.4 Geo-aware matching
 
-**Decision:** Score with a Haversine distance in both the local matcher and the Gemini prompt.
+**Decision:** Score with a Haversine distance fed into the Gemini prompt (and included in the rule-based fallback weights).
 **Why:** A 95%-text match is meaningless if the items are 500 km apart. Distance is the strongest single signal of a real match.
 
 ### 11.5 Single-port dev environment
 
-**Decision:** Five services on five ports (5001, 5002, 8000, 5173/5174, 8081) orchestrated by `start-dev.bat`.
-**Why:** Each service has a different runtime and a different startup time; a single Node process would not be able to load the Python models. The script opens five Windows Terminal panes so a developer can see every log.
+**Decision:** Three services on three ports (5001, 5173, 8081) orchestrated by `start-dev.bat`.
+**Why:** Each service has a different runtime and a different startup time; splitting them keeps every log visible in its own terminal pane.
 
-### 11.6 Image upload → detect → store
+### 11.6 Image upload → Cloudinary
 
-**Decision:** Push the image to a `temp/` folder first, run the detector, then upload to Cloudinary and delete the local copy.
-**Why:** The detector needs raw bytes and a stable path. Pushing to Cloudinary first would waste storage on rejected images and double the network bill. The cron job in `tempImageCleanup.js` is the safety net for the few images that never reach Cloudinary.
+**Decision:** Push the image to a Cloudinary `temp/` folder first, then move it to the permanent `reclaimit/items` folder.
+**Why:** Rejected or abandoned uploads never occupy permanent storage. The cron job in `tempImageCleanup.js` is the safety net for the few images that never reach the final folder.
 
-### 11.7 Synthetic training data
+### 11.7 Cloud LLM over a locally-trained model
 
-**Decision:** Generate 12k synthetic items and 30k balanced pairs locally instead of scraping real reports.
-**Why:** No public lost-and-found corpus exists at the scale we need, and using real reports would be a privacy issue. The synthetic generator explicitly injects hard negatives (same category, same color, nearby location, token overlap) to teach the model what "looks similar but is not a match" means.
+**Decision:** Use hosted Gemini rather than a self-trained sentence model.
+**Why:** No public lost-and-found corpus exists at scale for training, and a self-hosted model adds a Python service, GPU/CPU serving, and retraining overhead. Gemini gives strong semantic reasoning immediately, with zero model-serving infrastructure. The main costs — per-call latency and API bill — are acceptable because the candidate pool per report is capped (100).
 
-### 11.8 Polyglot service mesh
+### 11.8 Single-language backend stack
 
-**Decision:** Three different languages in the backend stack (Node, Python for matcher, Python for image detection).
-**Why:** The right tool for the right job. Node + Express is the lightest path for an HTTP API, FastAPI is the natural fit for serving a PyTorch model, and Flask is a single-file process that boots in 2 s — which is exactly what we want for a microservice that the backend hits on every upload.
+**Decision:** One language in the backend (Node.js). All AI is external (Gemini over HTTPS).
+**Why:** Keeping the whole orchestrator in TypeScript/JS simplifies deployment, dependency management, and debugging. External AI reduces the backend to a thin HTTP gateway, so there is no need to run Python microservices alongside Node.
 
 ### 11.9 Socket.io + REST coexistence
 
@@ -982,20 +888,19 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 
 - **Stateless Node backend** — multiple instances behind a load balancer; Socket.io can be moved to the Redis adapter when needed.
 - **MongoDB** — horizontal scale via replica set / sharding; geo-index on items scales with the standard Mongo geo operators.
-- **Local matcher** — the cross-encoder is small (~100 MB) and runs on CPU; an additional instance can be added behind a simple round-robin proxy.
-- **Image detector** — Flask runs a single-process PyTorch inference; switching to TorchServe or Triton would allow GPU-backed multi-model serving.
+- **AI matching** — Gemini is a managed API; load scales automatically and there is nothing to provision or scale ourselves.
 
 ### 12.2 Concrete next steps
 
 1. **Push notifications** — integrate Expo Push or FCM so users get notified even when the app is closed.
 2. **Edge-based geo search** — Mongo `2dsphere` index + `$geoNear` for "items near me" feeds.
 3. **Per-tenant config** — institutions can override the matching threshold to tune for their campus size.
-4. **Re-train on real data** — once a corpus of confirmed matches exists, fine-tune the cross-encoder on real reports and replace the synthetic-only model.
-5. **Stronger image detection** — swap the SigLIP2 + DINOv2 ensemble for a 3-class model (`REAL`, `AI_IMAGE`, `SCREEN_PHOTO`) to catch the new wave of GAN- and diffusion-based fakes.
+4. **Improve rule-based fallback** — once a corpus of confirmed matches exists, tune the field weights (Jaccard, category, color, brand, time, distance) using real verifications.
+5. **Reintroduce AI image analysis** — a future image-similarity feature (e.g., CLIP embeddings) could be added behind the upload endpoint to rank photos visually.
 6. **On-device matching** — the mobile app can pre-rank candidates using a small embedding model, only sending the top-K to the backend. This cuts the per-report cost dramatically.
 7. **Audit log** — persist every admin action (who changed what, when) into a dedicated `audit_logs` collection for compliance.
 8. **SSO for institutions** — add SAML / OIDC connectors for universities that already run their own identity provider.
-9. **Bilingual models** — the dataset is currently English-only. Adding Hindi and Nepali descriptions would improve recall for our target audience.
+9. **Additional language support** — the dataset is currently English-only. Adding other language descriptions would improve recall for wider audiences.
 10. **Public REST API** — once auth is stable, expose a documented v1 REST API for partner integrations (e.g. campus security systems).
 
 ---
@@ -1004,43 +909,30 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 
 ### 13.1 Local Development
 
-1. Install Node 20+ and Python 3.10+.
+1. Install Node 20+.
 2. **Backend**
    ```bash
    cd backend
    npm install
    npm run dev    # nodemon src/server.js
    ```
-3. **AI Image Detection**
-   ```bash
-   cd ai-detection-service
-   pip install -r requirements.txt
-   python app.py  # or start.bat on Windows
-   ```
-4. **AI Matcher**
-   ```bash
-   cd AI
-   pip install -r requirements-ml.txt
-   uvicorn matcher_api:app --host 0.0.0.0 --port 8000
-   ```
-5. **Admin Web**
+3. **Admin Web**
    ```bash
    cd admin-web
    npm install
    npm run dev
    ```
-6. **Mobile App**
+4. **Mobile App**
    ```bash
    cd mobile
    npm install
    npx expo start
    ```
-7. Or, on Windows, run `start-dev.bat` from the project root to open all five in separate terminal panes. `update-ip.ps1` will rewrite `mobile/app.json` with the laptop's current WiFi IPv4 so Expo Go on a physical device can reach the backend.
+5. Or, on Windows, run `start-dev.bat` from the project root to open all three in separate terminal panes. `update-ip.ps1` will rewrite `mobile/app.json` with the laptop's current WiFi IPv4 so Expo Go on a physical device can reach the backend.
 
 ### 13.2 Production Targets
 
-- **Backend** — any Node host (Render, Railway, Fly, AWS ECS). Set `NODE_ENV=production` so the temp-cleanup cron activates. Provide env vars: `MONGODB_URL`, Clerk keys, Cloudinary keys, `GEMINI_API_KEY`, `AI_DETECTION_SERVICE_URL`, `MATCH_PROVIDER`, `API_URL`.
-- **AI services** — Fly / Render / a small GPU VM. They expose plain HTTP so a reverse proxy with TLS is enough. Pin Python version via `requirements*.txt`.
+- **Backend** — any Node host (Render, Railway, Fly, AWS ECS). Set `NODE_ENV=production` so the temp-cleanup cron activates. Provide env vars: `MONGODB_URL`, Clerk keys, Cloudinary keys, `GEMINI_API_KEY`, `MATCH_PROVIDER`, `API_URL`.
 - **Admin web** — static build (`npm run build` → `dist/`) on Cloudflare Pages, Vercel, or Netlify. Configure `VITE_CLERK_PUBLISHABLE_KEY` and `VITE_API_URL`.
 - **Mobile** — Expo EAS Build for both stores; configure `eas.json` to point at the production API URL.
 
@@ -1055,8 +947,6 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 | Service                    | Port | URL                              |
 | -------------------------- | ---- | -------------------------------- |
 | Backend (HTTP + Socket.io) | 5001 | `http://localhost:5001/api`    |
-| AI Image Detection (Flask) | 5002 | `http://localhost:5002/detect` |
-| AI Matcher (FastAPI)       | 8000 | `http://localhost:8000/score`  |
 | Admin Web (Vite)           | 5173 | `http://localhost:5173`        |
 | Mobile (Expo)              | 8081 | `http://<laptop-ip>:8081`      |
 
@@ -1064,25 +954,25 @@ Server-side it persists messages, updates `unreadCount` on the chat, and emits `
 
 ## 14. Conclusion
 
-ReclaimIt is a **production-shaped, polyglot, AI-first** lost-and-found platform. It is intentionally built as a small set of loosely coupled services so each layer can evolve independently:
+ReclaimIt is a **production-shaped, AI-first** lost-and-found platform. It is intentionally built as a small set of loosely coupled services so each layer can evolve independently:
 
-- The **mobile app** is a fast, accessible Expo experience that handles sign-in, image capture, geolocation, real-time chat, and multilingual UX.
-- The **backend** is a thin Node API that owns persistence, authentication, and orchestration of all AI calls. It is small enough to reason about end-to-end and rich enough to demonstrate real engineering concerns (cron jobs, file uploads, multi-provider AI, real-time sockets, RBAC, audit endpoints).
+- The **mobile app** is a fast, accessible Expo experience that handles sign-in, image capture, geolocation, and real-time chat.
+- The **backend** is a thin Node API that owns persistence, authentication, and orchestration of all AI calls. It is small enough to reason about end-to-end and rich enough to demonstrate real engineering concerns (cron jobs, file uploads, cloud AI integration, real-time sockets, RBAC, audit endpoints).
 - The **admin web** showcases the same data from a moderator's perspective and proves that the system is operable, not just a demo.
-- The **AI services** show that "AI features" can be deterministic, self-hostable, and explainable. The matcher is a small cross-encoder; the image detector is a SigLIP2 + DINOv2 ensemble with LoRA adapters — both come with training scripts, datasets, and evaluation metrics.
+- **Matching intelligence** is delivered by Google Gemini through the backend, with a deterministic rule-based fallback so the pipeline never depends on a single provider.
 
 ### 14.1 What this demonstrates
 
-- Full-stack engineering across Node, Python, React, and React Native.
+- Full-stack engineering across Node, React, and React Native.
 - Production patterns: env-based config, scheduled jobs, RBAC, file uploads, real-time comms, graceful degradation.
-- Applied ML: a custom-trained cross-encoder, a custom dataset generator, and integration of a third-party vision model — all wired into a real product.
-- Thoughtful UX: multilingual UI, ban flow, image abuse detection, manual admin override.
+- Applied AI: a cloud LLM (Gemini) wired into a real product for semantic item matching, with an explainable rule-based fallback.
+- Thoughtful UX: ban flow, manual admin override.
 
 ### 14.2 What to try first
 
 1. **Sign in** with Google on the mobile app, report a lost item with a real photo, then report a similar found item from another account and watch the chat open in real time.
-2. **Open the admin portal** in a browser, sign in with an admin Clerk account, and watch the item appear in the moderation queue with the AI analysis card.
-3. **Read the logs** of the Python matcher while a report is created — the FastAPI service will show the `/score` call and the JSON it returns.
+2. **Open the admin portal** in a browser, sign in with an admin Clerk account, and watch the moderation queue populate.
+3. **Watch the backend logs** while a report is created — the `autoMatchNewItem` flow will log each candidate's Gemini score and the resulting match strength.
 
 The codebase is intentionally readable: every folder has a clear single responsibility, every service has a one-line README, and the cross-service contracts are visible in the controllers and route definitions. A new contributor should be able to land a meaningful change in their first afternoon.
 

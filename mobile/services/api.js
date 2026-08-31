@@ -259,65 +259,6 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
         throw error;
       }
     },
-    sendVoiceMessage: async (chatId, audioUri, durationMs = 0) => {
-      try {
-        const formData = new FormData();
-        formData.append('audio', {
-          uri: audioUri,
-          name: `voice-${Date.now()}.m4a`,
-          type: 'audio/m4a'
-        });
-        formData.append('durationMs', String(durationMs));
-
-        const voiceToken = getTokenFn ? await getTokenFn({ skipCache: true }) : currentToken;
-
-        // Use fetch for file multipart in React Native to avoid intermittent axios network errors.
-        const response = await fetch(`${API_URL}/chats/${chatId}/messages/voice`, {
-          method: 'POST',
-          headers: {
-            ...(voiceToken && { Authorization: `Bearer ${voiceToken}` })
-          },
-          body: formData,
-        });
-
-        let payload = null;
-        try {
-          payload = await response.json();
-        } catch {
-          payload = null;
-        }
-
-        if (!response.ok) {
-          const errorMessage = payload?.message || payload?.error || `Voice upload failed (${response.status})`;
-          throw new Error(errorMessage);
-        }
-
-        return payload;
-      } catch (error) {
-        console.error('Error sending voice message:', error);
-        throw error;
-      }
-    },
-    transcribeVoiceMessageEnglish: async (chatId, messageId) => {
-      try {
-        const response = await authenticatedApi.post(`/chats/${chatId}/messages/${messageId}/transcribe-en`);
-        return response.data;
-      } catch (error) {
-        console.error('Error transcribing voice message:', error);
-        throw error;
-      }
-    },
-    translateTextMessage: async (chatId, messageId, targetLanguage) => {
-      try {
-        const response = await authenticatedApi.post(`/chats/${chatId}/messages/${messageId}/translate`, {
-          targetLanguage,
-        });
-        return response.data;
-      } catch (error) {
-        console.error('Error translating text message:', error);
-        throw error;
-      }
-    },
     deleteChat: async (chatId) => {
       try {
         const response = await authenticatedApi.delete(`/chats/${chatId}`);
@@ -328,6 +269,33 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
       }
     },
 
+    getMyItems: async () => {
+      try {
+        const response = await authenticatedApi.get('/items');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching my items:', error);
+        throw error;
+      }
+    },
+    getMyMatches: async () => {
+      try {
+        const response = await authenticatedApi.get('/matches/my/items');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching my matches:', error);
+        return { success: true, results: [], totalItems: 0, itemsWithMatches: 0 };
+      }
+    },
+    getMyMatchesCount: async () => {
+      try {
+        const response = await authenticatedApi.get('/matches/my/count');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching matches count:', error);
+        return { success: true, count: 0 };
+      }
+    },
     getMyInstitutions: async () => {
       try {
         const response = await authenticatedApi.get('/institutions/me');

@@ -1,22 +1,60 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, Pressable, Linking } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Linking, ActivityIndicator } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { BottomNavBar } from '../components/BottomNavBar';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useI18n } from '../i18n/I18nProvider';
+import { getAuthenticatedApi } from '../services/api';
 
 export default function ProfileScreen() {
   const { user } = useUser();
-  const { signOut } = useAuth();
+  const { signOut, getToken } = useAuth();
   const [image, setImage] = useState(null);
-  const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [stats, setStats] = useState({ found: 0, lost: 0, matches: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { t, language, setLanguage } = useI18n();
+  const { t } = useI18n();
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
+
+  const fetchStats = useCallback(async () => {
+    if (!user?.id) return;
+    setStatsLoading(true);
+    try {
+      const token = await getTokenRef.current({ skipCache: true });
+      const api = getAuthenticatedApi(token, getTokenRef.current);
+      const [itemsRes, countRes] = await Promise.all([
+        api.getItems().catch(() => ({ items: [] })),
+        api.getMyMatchesCount().catch(() => ({ count: 0 })),
+      ]);
+      const allItems = itemsRes?.items ?? [];
+      const myItems = allItems.filter((it) => {
+        const clerkId = typeof it.user === 'object' ? it.user?.clerkId : null;
+        if (clerkId) return clerkId === user.id;
+        return false;
+      });
+      const found = myItems.filter((it) => it.type === 'FOUND').length;
+      const lost = myItems.filter((it) => it.type === 'LOST').length;
+      const matches = countRes?.count ?? 0;
+      setStats({ found, lost, matches });
+    } catch (e) {
+      console.error('Failed to load profile stats:', e);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchStats();
+    }, [fetchStats])
+  );
   
 
   const pickImage = async () => {
@@ -83,32 +121,21 @@ const handleSignOut = async () => {
 
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>0</Text>
+            {statsLoading ? <ActivityIndicator size="small" color="#4A90E2" /> : <Text style={styles.statNumber}>{stats.found}</Text>}
             <Text style={styles.statLabel}>{t('profile.itemsFound')}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>0</Text>
+            {statsLoading ? <ActivityIndicator size="small" color="#4A90E2" /> : <Text style={styles.statNumber}>{stats.lost}</Text>}
             <Text style={styles.statLabel}>{t('profile.itemsLost')}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>0</Text>
+            {statsLoading ? <ActivityIndicator size="small" color="#4A90E2" /> : <Text style={styles.statNumber}>{stats.matches}</Text>}
             <Text style={styles.statLabel}>{t('profile.matches')}</Text>
           </View>
         </View>
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity style={styles.menuItem} onPress={() => setLanguageModalVisible(true)}>
-          <Ionicons name="settings-outline" size={24} color="#333" />
-          <View style={styles.menuTextWrap}>
-            <Text style={styles.menuText}>{t('profile.appLanguage')}</Text>
-            <Text style={styles.menuSubText}>
-              {t('profile.currentLanguage', { language: language === 'hi' ? t('common.hindi') : t('common.english') })}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#999" />
-        </TouchableOpacity>
-
         <TouchableOpacity style={styles.menuItem} onPress={() => Linking.openURL('mailto:bigyanacharya224@gmail.com')}>
           <Ionicons name="help-circle-outline" size={24} color="#333" />
           <Text style={styles.menuText}>{t('profile.helpSupport')}</Text>
@@ -129,45 +156,6 @@ const handleSignOut = async () => {
           <Text style={[styles.menuText, styles.logoutText]}>{t('profile.signOut')}</Text>
         </TouchableOpacity>
       </View>
-
-      <Modal
-        visible={languageModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLanguageModalVisible(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setLanguageModalVisible(false)}>
-          <Pressable style={styles.modalContent} onPress={() => {}}>
-            <Text style={styles.modalTitle}>{t('common.chooseLanguage')}</Text>
-
-            <TouchableOpacity
-              style={styles.languageOption}
-              onPress={() => {
-                setLanguage('en');
-                setLanguageModalVisible(false);
-              }}
-            >
-              <Text style={styles.languageOptionText}>{t('common.english')}</Text>
-              {language === 'en' ? <Ionicons name="checkmark-circle" size={22} color="#4A90E2" /> : null}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.languageOption}
-              onPress={() => {
-                setLanguage('hi');
-                setLanguageModalVisible(false);
-              }}
-            >
-              <Text style={styles.languageOptionText}>{t('common.hindi')}</Text>
-              {language === 'hi' ? <Ionicons name="checkmark-circle" size={22} color="#4A90E2" /> : null}
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.closeModalButton} onPress={() => setLanguageModalVisible(false)}>
-              <Text style={styles.closeModalText}>{t('common.close')}</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       <BottomNavBar activeTab="profile" />
     </View>
@@ -274,15 +262,7 @@ const styles = StyleSheet.create({
   menuText: {
     fontSize: 16,
     color: '#333',
-  },
-  menuTextWrap: {
-    flex: 1,
     marginLeft: 16,
-  },
-  menuSubText: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#6B7280',
   },
   logoutButton: {
     marginTop: 8,
@@ -290,47 +270,5 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: '#E74C3C',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(2,6,23,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 18,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 12,
-  },
-  languageOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  languageOptionText: {
-    fontSize: 16,
-    color: '#1F2937',
-  },
-  closeModalButton: {
-    marginTop: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-  },
-  closeModalText: {
-    color: '#334155',
-    fontWeight: '600',
   },
 });

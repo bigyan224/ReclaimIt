@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { memo } from "react";
 import RecentItemCard from "./RecentItemCard";
 import { useI18n } from "../i18n/I18nProvider";
 
-export default function RecentItemsList({ items, onDelete, showDeleteButton = true, currentUserId }) {
+function RecentItemsList({ items, onDelete, showDeleteButton = true, currentUserId }) {
   const { t } = useI18n();
 
   if (!items || items.length === 0) {
@@ -46,3 +47,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+export default memo(RecentItemsList);
