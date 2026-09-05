@@ -118,8 +118,9 @@ export const reportItem = async (req, res) => {
 
     console.log(`📝 Item saved: ${newItem._id} - Starting background matching...`);
 
-    // Run matching algorithm in background (non-blocking)
-    autoMatchNewItem(newItem._id).catch(err => {
+    // Run matching algorithm in background (non-blocking), pass io for live notification push
+    const io = req.app?.get("io") || null;
+    autoMatchNewItem(newItem._id, io).catch(err => {
       console.error("❌ Background matching failed:", err);
     });
 
@@ -318,8 +319,9 @@ export const updateItem = async (req, res) => {
       ],
     });
 
-    // Run matching algorithm in background (non-blocking)
-    autoMatchNewItem(savedItem._id).catch(err => {
+    // Run matching algorithm in background (non-blocking), pass io for live notification push
+    const io = req.app?.get("io") || null;
+    autoMatchNewItem(savedItem._id, io).catch(err => {
       console.error('❌ Background matching failed:', err);
     });
 

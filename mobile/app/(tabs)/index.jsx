@@ -1,5 +1,5 @@
 import { useAuth, useUser } from "@clerk/clerk-expo";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { View, Text, TouchableOpacity, Image, StyleSheet, ScrollView, Modal, Pressable, ActivityIndicator, Animated, Easing } from "react-native";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,7 @@ import { getAuthenticatedApi } from "../../services/api";
 import RecentItemsList from "../../components/RecentItemsList";
 import { useI18n } from "../../i18n/I18nProvider";
 import * as Location from "expo-location";
+import socketService from "../../services/socket";
 
 let cachedItems = null;
 let cachedNotifications = null;
@@ -20,6 +21,27 @@ let hasFetchedHomeDataOnce = false;
 let homeDataFetchPromise = null;
 let cachedHomeErrorKey = null;
 let cachedHomeUserId = null;
+let cachedHomeAt = 0;
+
+export function invalidateHomeCache() {
+  cachedItems = null;
+  cachedNotifications = null;
+  cachedUnreadCount = 0;
+  cachedInstitutionItems = null;
+  cachedNearbyItems = null;
+  hasFetchedHomeDataOnce = false;
+  homeDataFetchPromise = null;
+  cachedHomeErrorKey = null;
+  cachedHomeAt = 0;
+}
+
+export function addItemToHomeCache(item) {
+  if (!item) return;
+  if (!Array.isArray(cachedItems)) cachedItems = [];
+  cachedItems = [item, ...cachedItems.filter((i) => String(i._id) !== String(item._id))];
+  hasFetchedHomeDataOnce = true;
+  cachedHomeAt = Date.now();
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -258,6 +280,7 @@ export default function Page() {
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [waking, setWaking] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("my");
   const tabLayouts = useRef({ my: null, institution: null, public: null });
@@ -268,6 +291,27 @@ export default function Page() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Show "waking server" hint if loading >3s (Render cold start)
+  useEffect(() => {
+    if (!loading) { setWaking(false); return; }
+    const t = setTimeout(() => setWaking(true), 3000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
+  const withColdStartRetry = async (fn) => {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const isCold = e?.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('Network Error') || (e?.response?.status >= 500);
+      if (isCold) {
+        await new Promise(r => setTimeout(r, 2500));
+        return await fn();
+      }
+      throw e;
+    }
+  };
 
   const [institutions, setInstitutions] = useState([]);
   const [institutionItems, setInstitutionItems] = useState([]);
@@ -360,9 +404,9 @@ export default function Page() {
       });
       const api = getAuthenticatedApi(token, getTokenRef.current);
 
-      const itemsPromise = api.getItems();
-      const notificationsPromise = token ? api.getNotifications() : Promise.resolve({ notifications: [], unreadCount: 0 });
-      const institutionsPromise = api.getMyInstitutions();
+      const itemsPromise = withColdStartRetry(() => api.getItems());
+      const notificationsPromise = token ? withColdStartRetry(() => api.getNotifications()).catch(() => ({ notifications: [], unreadCount: 0 })) : Promise.resolve({ notifications: [], unreadCount: 0 });
+      const institutionsPromise = withColdStartRetry(() => api.getMyInstitutions()).catch(() => ({ institutions: [] }));
 
       const [itemsData, notificationsData, instData] = await Promise.all([itemsPromise, notificationsPromise, institutionsPromise]);
 
@@ -377,7 +421,7 @@ export default function Page() {
       setInstitutions(instList);
       cachedInstitutions = instList;
 
-      api.getItems({ type: 'LOST', near: `${37.7749},${-122.4194}`, radius: '50' }).then(res => {
+      withColdStartRetry(() => api.getItems({ type: 'LOST', near: `${37.7749},${-122.4194}`, radius: '50' })).then(res => {
         const nearby = res?.items ?? [];
         cachedNearbyItems = nearby;
         setNearbyItems(nearby);
@@ -387,6 +431,7 @@ export default function Page() {
 
       cachedHomeErrorKey = null;
       hasFetchedHomeDataOnce = true;
+      cachedHomeAt = Date.now();
     } catch (err) {
       console.error('Error fetching data:', err?.response?.status, err?.response?.data || err?.message);
       cachedHomeErrorKey = 'home.loadErrorShort';
@@ -396,6 +441,34 @@ export default function Page() {
       setRefreshing(false);
     }
   };
+
+  // Silent background refresh (no spinner) used on tab focus
+  const silentRefresh = useCallback(async () => {
+    try {
+      const token = await getTokenRef.current().catch(() => null);
+      const api = getAuthenticatedApi(token, getTokenRef.current);
+      const [itemsData, notificationsData] = await Promise.all([
+        api.getItems().catch(() => null),
+        token ? api.getNotifications().catch(() => null) : Promise.resolve(null),
+      ]);
+      if (itemsData?.items) {
+        setItems(itemsData.items);
+        cachedItems = itemsData.items;
+      }
+      if (notificationsData) {
+        setNotifications(notificationsData.notifications ?? []);
+        setUnreadCount(notificationsData.unreadCount ?? 0);
+        cachedNotifications = notificationsData.notifications ?? [];
+        cachedUnreadCount = notificationsData.unreadCount || 0;
+      }
+      cachedHomeErrorKey = null;
+      setError(null);
+      hasFetchedHomeDataOnce = true;
+      cachedHomeAt = Date.now();
+    } catch (err) {
+      console.error('Silent refresh failed:', err?.message || err);
+    }
+  }, [t]);
 
   useEffect(() => {
     let mounted = true;
@@ -432,9 +505,9 @@ export default function Page() {
             });
             const api = getAuthenticatedApi(token, getTokenRef.current);
 
-            const itemsPromise = api.getItems();
-            const notificationsPromise = token ? api.getNotifications() : Promise.resolve({ notifications: [], unreadCount: 0 });
-            const institutionsPromise = api.getMyInstitutions();
+            const itemsPromise = withColdStartRetry(() => api.getItems());
+            const notificationsPromise = token ? withColdStartRetry(() => api.getNotifications()).catch(() => ({ notifications: [], unreadCount: 0 })) : Promise.resolve({ notifications: [], unreadCount: 0 });
+            const institutionsPromise = withColdStartRetry(() => api.getMyInstitutions()).catch(() => ({ institutions: [] }));
 
             const [itemsData, notificationsData, instData] = await Promise.all([itemsPromise, notificationsPromise, institutionsPromise]);
 
@@ -445,7 +518,7 @@ export default function Page() {
             const instList = instData?.institutions ?? [];
             cachedInstitutions = instList;
 
-            api.getItems({ type: 'LOST', near: `${37.7749},${-122.4194}`, radius: '50' }).then(res => {
+            withColdStartRetry(() => api.getItems({ type: 'LOST', near: `${37.7749},${-122.4194}`, radius: '50' })).then(res => {
               cachedNearbyItems = res?.items ?? [];
             }).catch(() => {});
 
@@ -454,6 +527,7 @@ export default function Page() {
             cachedHomeUserId = user?.id || null;
             cachedHomeErrorKey = null;
             hasFetchedHomeDataOnce = true;
+            cachedHomeAt = Date.now();
           } catch (err) {
             console.error('Error during initial fetch:', err?.response?.status, err?.response?.data || err?.message);
             cachedItems = [];
@@ -464,6 +538,7 @@ export default function Page() {
             cachedNearbyItems = [];
             cachedHomeErrorKey = 'home.loadError';
             hasFetchedHomeDataOnce = true;
+            cachedHomeAt = Date.now();
           } finally {
             homeDataFetchPromise = null;
           }
@@ -520,12 +595,73 @@ export default function Page() {
     }
   }, [activeTab, institutions, institutionItems.length, getTokenRef]);
 
+  // Re-apply cache + silent refresh when returning to home (e.g. after report)
+  useFocusEffect(
+    useCallback(() => {
+      applyCachedHomeData();
+      const now = Date.now();
+      if (!hasFetchedHomeDataOnce || now - cachedHomeAt > 30000) {
+        silentRefresh();
+      }
+    }, [applyCachedHomeData, silentRefresh])
+  );
+
+  // Live match notifications via socket — bell updates instantly, no reopen needed
+  useEffect(() => {
+    if (!user?.id) return;
+    const ensureSocket = async () => {
+      try {
+        const token = await getTokenRef.current().catch(() => null);
+        if (!socketService.isConnected()) {
+          socketService.connect(user.id, [], token);
+        }
+      } catch (err) {
+        console.error('Home socket connect failed:', err?.message || err);
+      }
+    };
+    ensureSocket();
+
+    const handleNotification = (data) => {
+      const n = data?.notification;
+      if (!n) return;
+      setNotifications((prev) => {
+        if (prev.some((x) => String(x._id) === String(n._id))) return prev;
+        return [n, ...prev];
+      });
+      setUnreadCount((c) => c + 1);
+      cachedNotifications = [n, ...(cachedNotifications || [])].filter(
+        (x, idx, arr) => arr.findIndex((y) => String(y._id) === String(x._id)) === idx
+      );
+      cachedUnreadCount = (cachedUnreadCount || 0) + 1;
+      cachedHomeAt = Date.now();
+    };
+
+    socketService.onNotification(handleNotification);
+    return () => {
+      socketService.offNotification(handleNotification);
+    };
+  }, [user?.id]);
+
   const renderTabContent = () => {
     if (loading) {
-      return <ActivityIndicator size="large" color="#2563EB" style={{ marginTop: 40 }} />;
+      return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
+          <ActivityIndicator size="large" color="#2563EB" />
+          {waking && <Text style={{ marginTop: 12, color: '#64748B', textAlign: 'center', paddingHorizontal: 24 }}>Waking up server, please wait — Render cold start can take 20s</Text>}
+        </View>
+      );
     }
     if (error) {
-      return <Text style={{ color: "red", textAlign: 'center', marginTop: 40 }}>{error}</Text>;
+      return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40, paddingHorizontal: 24 }}>
+          <Ionicons name="cloud-offline-outline" size={48} color="#94A3B8" />
+          <Text style={{ color: "#DC2626", textAlign: 'center', marginTop: 12, fontWeight: '600' }}>{error}</Text>
+          <Text style={{ color: "#64748B", textAlign: 'center', marginTop: 6, fontSize: 13 }}>Server may be waking up. Tap retry.</Text>
+          <TouchableOpacity onPress={handleRefresh} style={{ marginTop: 16, backgroundColor: '#2563EB', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
     }
 
     if (activeTab === "my") {

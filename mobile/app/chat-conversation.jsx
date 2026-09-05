@@ -22,6 +22,19 @@ import { getAuthenticatedApi } from '../services/api';
 import socketService from '../services/socket';
 import { useI18n } from '../i18n/I18nProvider';
 
+let cachedMessagesMap = new Map();
+let cachedChatInfoMap = new Map();
+let cachedMessagesAt = new Map();
+
+const withColdStartRetry = async (fn) => {
+  try { return await fn(); } catch (e) {
+    const msg = String(e?.message || '');
+    const isCold = e?.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('Network Error') || (e?.response?.status >= 500);
+    if (isCold) { await new Promise(r => setTimeout(r, 2500)); return await fn(); }
+    throw e;
+  }
+};
+
 export default function ChatConversationScreen() {
   const { user } = useUser();
   const { getToken } = useAuth();
@@ -30,11 +43,11 @@ export default function ChatConversationScreen() {
   const { chatId, otherUserName } = useLocalSearchParams();
   const { t } = useI18n();
 
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => cachedMessagesMap.get(chatId) || []);
   const [messageText, setMessageText] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedMessagesMap.has(chatId));
   const [sending, setSending] = useState(false);
-  const [chatInfo, setChatInfo] = useState(null);
+  const [chatInfo, setChatInfo] = useState(() => cachedChatInfoMap.get(chatId) || null);
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [isOtherUserOnline, setIsOtherUserOnline] = useState(false);
@@ -75,20 +88,47 @@ export default function ChatConversationScreen() {
   useEffect(() => {
     let mounted = true;
 
-    const loadChatData = async () => {
+    const loadChatData = async (isBackground = false) => {
+      const now = Date.now();
+      const cachedAt = cachedMessagesAt.get(chatId) || 0;
+      const hasFreshCache = cachedMessagesMap.has(chatId) && now - cachedAt < 30000;
+      if (hasFreshCache && !isBackground) {
+        // Instant from cache, no spinner, skip network
+        setChatInfo(cachedChatInfoMap.get(chatId) || null);
+        setMessages(cachedMessagesMap.get(chatId) || []);
+        setLoading(false);
+        const cachedClaim = cachedChatInfoMap.get(chatId)?.matchedItem ? null : null;
+        // Still refresh claim status in background
+        return;
+      }
+      if (!isBackground) {
+        // Only show spinner if no cache
+        if (!cachedMessagesMap.has(chatId)) setLoading(true);
+      }
       try {
         const token = await getTokenRef.current({ skipCache: true });
         const api = getAuthenticatedApi(token, getTokenRef.current);
+        // If we have cached chatInfo, we don't need to refetch chats list
+        const needChats = !cachedChatInfoMap.has(chatId);
         const [chatsResponse, messagesResponse] = await Promise.all([
-          api.getChats(),
-          api.getChatMessages(chatId),
+          needChats ? withColdStartRetry(() => api.getChats()) : Promise.resolve({ chats: [] }),
+          withColdStartRetry(() => api.getChatMessages(chatId)),
         ]);
 
         if (!mounted) return;
 
-        const currentChat = chatsResponse.chats?.find((c) => c._id === chatId) || null;
-        setChatInfo(currentChat);
-        setMessages(messagesResponse.messages || []);
+        let currentChat = cachedChatInfoMap.get(chatId) || null;
+        if (needChats && chatsResponse.chats) {
+          currentChat = chatsResponse.chats.find((c) => c._id === chatId) || currentChat;
+        }
+        if (currentChat) {
+          cachedChatInfoMap.set(chatId, currentChat);
+          setChatInfo(currentChat);
+        }
+        const msgs = messagesResponse.messages || [];
+        cachedMessagesMap.set(chatId, msgs);
+        cachedMessagesAt.set(chatId, Date.now());
+        setMessages(msgs);
 
         // Fetch matchedItem claim status
         if (currentChat?.matchedItem) {
@@ -104,12 +144,16 @@ export default function ChatConversationScreen() {
       } catch (err) {
         if (!mounted) return;
         console.error('Error loading chat data:', err);
+        // If we have cache, keep showing it
+        if (!cachedMessagesMap.has(chatId)) {
+          // No cache — will show empty/error (keep loading false to show empty state)
+        }
       } finally {
         if (mounted) setLoading(false);
       }
     };
 
-    loadChatData();
+    loadChatData(false);
 
     return () => {
       mounted = false;
@@ -252,6 +296,14 @@ export default function ChatConversationScreen() {
 
     previousMessagesCountRef.current = messages.length;
   }, [messages.length]);
+
+  // Keep cache in sync for instant reopen
+  useEffect(() => {
+    if (chatId && messages.length) {
+      cachedMessagesMap.set(chatId, messages);
+      cachedMessagesAt.set(chatId, Date.now());
+    }
+  }, [messages, chatId]);
 
   // Check online status when chatInfo loads
   useEffect(() => {

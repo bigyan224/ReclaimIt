@@ -13,19 +13,21 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { getAuthenticatedApi } from '../../services/api';
 import { useItemReportForm } from '../../hooks/useItemReportForm';
 import { getReportFormStyles } from '../../assets/styles/report-form.styles';
 import { useI18n } from '../../i18n/I18nProvider';
 import NetInfo from '@react-native-community/netinfo';
 import LeafletMap from '../../components/LeafletMap';
+import { addItemToHomeCache } from '../(tabs)/index';
 
 export default function ReportLost() {
   const styles = getReportFormStyles('LOST');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const { getToken } = useAuth();
+  const { user } = useUser();
   const { t } = useI18n();
   const categories = [
     { key: 'electronics', value: 'Electronics' },
@@ -103,6 +105,13 @@ export default function ReportLost() {
       };
 
       const result = await api.reportItem(itemData);
+      // Prepend to home cache so it shows instantly without manual refresh
+      try {
+        const newItem = result?.item;
+        if (newItem) {
+          addItemToHomeCache({ ...newItem, user: { _id: newItem.user, clerkId: user?.id } });
+        }
+      } catch {}
       console.log(result);
       
       Alert.alert(

@@ -3,6 +3,7 @@ import MatchedItem from "../models/matchedItem.model.js";
 import Notification from "../models/notification.model.js";
 import { scoreCandidatesWithGemini } from "../services/geminiMatching.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { emitToUser } from "../config/socket.js";
 
 // Simple configuration
 const GEO_RADIUS_KM = 20;
@@ -542,7 +543,8 @@ export const getMatchedItemById = async (req, res) => {
 };
 
 // Auto-run matching when a new item is created
-export const autoMatchNewItem = async (itemId) => {
+// io is optional — when provided, match notifications are pushed live via socket
+export const autoMatchNewItem = async (itemId, io = null) => {
   try {
     console.log(`\n🔍 Starting auto-match for item: ${itemId}`);
     
@@ -684,10 +686,33 @@ export const autoMatchNewItem = async (itemId) => {
 
       // Save notifications
       if (notificationsToCreate.length > 0) {
-        await Notification.insertMany(notificationsToCreate);
+        const savedNotifications = await Notification.insertMany(notificationsToCreate);
         const strongCount = notificationsToCreate.filter(n => n.title.includes("Strong")).length;
         const mediumCount = notificationsToCreate.filter(n => n.title.includes("Possible")).length;
         console.log(`🔔 Created ${notificationsToCreate.length} notifications for both users (${strongCount} strong, ${mediumCount} medium)\n`);
+
+        // Push live via socket so home bell updates instantly (no reopen needed)
+        if (io) {
+          try {
+            const userIdToClerk = new Map();
+            if (item.user?._id && item.user?.clerkId) {
+              userIdToClerk.set(String(item.user._id), item.user.clerkId);
+            }
+            for (const c of candidates) {
+              if (c.user?._id && c.user?.clerkId) {
+                userIdToClerk.set(String(c.user._id), c.user.clerkId);
+              }
+            }
+            for (const n of savedNotifications) {
+              const clerkId = userIdToClerk.get(String(n.user));
+              if (clerkId) {
+                emitToUser(io, clerkId, "notification:new", { notification: n });
+              }
+            }
+          } catch (emitErr) {
+            console.error("Socket notification emit failed:", emitErr?.message || emitErr);
+          }
+        }
       }
       
     } else {

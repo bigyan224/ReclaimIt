@@ -49,7 +49,14 @@ class SocketService {
     this.socket.on('connect', () => {
       if (__DEV__) console.log('✅ Socket connected:', this.socket.id);
       this.connected = true;
-      
+
+      // Attach any pending notification listener registered before connect
+      if (this._pendingNotificationCb) {
+        this.socket.on('notification:new', this._pendingNotificationCb);
+        this._notificationCb = this._pendingNotificationCb;
+        this._pendingNotificationCb = null;
+      }
+
       // Join user and their chats
       this.socket.emit('user:join', { userId, chatIds });
     });
@@ -192,6 +199,24 @@ class SocketService {
   offMessagesReadUpdate(callback) {
     if (this.socket) {
       this.socket.off('messages:read:update', callback);
+    }
+  }
+
+  onNotification(callback) {
+    if (this.socket) {
+      this.socket.on('notification:new', callback);
+    } else {
+      // Socket not yet connected — store for later attach
+      this._pendingNotificationCb = callback;
+    }
+  }
+
+  offNotification(callback) {
+    if (this.socket) {
+      this.socket.off('notification:new', callback);
+    }
+    if (this._pendingNotificationCb === callback) {
+      this._pendingNotificationCb = null;
     }
   }
 

@@ -26,9 +26,25 @@ export default function ChatScreen() {
 
   const [chats, setChats] = useState(cachedChats ?? []);
   const [loading, setLoading] = useState(!hasFetchedChatsOnce);
+  const [waking, setWaking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(cachedChatErrorKey ? t(cachedChatErrorKey) : null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
+
+  useEffect(() => {
+    if (!loading) { setWaking(false); return; }
+    const tmr = setTimeout(() => setWaking(true), 3000);
+    return () => clearTimeout(tmr);
+  }, [loading]);
+
+  const withColdStartRetry = async (fn) => {
+    try { return await fn(); } catch (e) {
+      const msg = String(e?.message || '');
+      const isCold = e?.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('Network Error') || (e?.response?.status >= 500);
+      if (isCold) { await new Promise(r => setTimeout(r, 2500)); return await fn(); }
+      throw e;
+    }
+  };
 
   const applyCachedChats = () => {
     setChats(cachedChats ?? []);
@@ -63,7 +79,7 @@ export default function ChatScreen() {
       const runFetch = async () => {
         const token = await getToken({ skipCache: true });
         const api = getAuthenticatedApi(token, getToken);
-        const response = await api.getChats();
+        const response = await withColdStartRetry(() => api.getChats());
         cachedChats = response.chats || [];
         cachedChatUserId = user?.id || null;
         cachedChatErrorKey = null;
@@ -195,6 +211,7 @@ export default function ChatScreen() {
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
+          {waking && <Text style={{ marginTop: 12, color: '#64748B', textAlign: 'center' }}>Waking up server, please wait...</Text>}
         </View>
       ) : error ? (
         <View style={styles.centerContainer}>

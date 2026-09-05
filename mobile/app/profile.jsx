@@ -4,28 +4,45 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { BottomNavBar } from '../components/BottomNavBar';
-import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useI18n } from '../i18n/I18nProvider';
 import { getAuthenticatedApi } from '../services/api';
 
+let cachedProfileStats = null;
+let cachedProfileStatsAt = 0;
+let cachedProfileUserId = null;
+
 export default function ProfileScreen() {
   const { user } = useUser();
   const { signOut, getToken } = useAuth();
   const [image, setImage] = useState(null);
-  const [stats, setStats] = useState({ found: 0, lost: 0, matches: 0 });
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [stats, setStats] = useState(cachedProfileStats || { found: 0, lost: 0, matches: 0 });
+  const [statsLoading, setStatsLoading] = useState(!cachedProfileStats);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const getTokenRef = useRef(getToken);
   useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (force = false) => {
     if (!user?.id) return;
-    setStatsLoading(true);
+    const now = Date.now();
+    if (cachedProfileUserId && cachedProfileUserId !== user.id) {
+      cachedProfileStats = null;
+      cachedProfileStatsAt = 0;
+    }
+    cachedProfileUserId = user.id;
+    // Use module cache if fetched <60s ago and not forced
+    if (!force && cachedProfileStats && now - cachedProfileStatsAt < 60000) {
+      setStats(cachedProfileStats);
+      setStatsLoading(false);
+      return;
+    }
+    // Show spinner only on first load, otherwise silent background refresh
+    const isFirstLoad = !cachedProfileStats;
+    if (isFirstLoad) setStatsLoading(true);
     try {
       const token = await getTokenRef.current({ skipCache: true });
       const api = getAuthenticatedApi(token, getTokenRef.current);
@@ -42,7 +59,10 @@ export default function ProfileScreen() {
       const found = myItems.filter((it) => it.type === 'FOUND').length;
       const lost = myItems.filter((it) => it.type === 'LOST').length;
       const matches = countRes?.count ?? 0;
-      setStats({ found, lost, matches });
+      const next = { found, lost, matches };
+      cachedProfileStats = next;
+      cachedProfileStatsAt = now;
+      setStats(next);
     } catch (e) {
       console.error('Failed to load profile stats:', e);
     } finally {
@@ -50,9 +70,14 @@ export default function ProfileScreen() {
     }
   }, [user?.id]);
 
+  // Initial load
+  useEffect(() => {
+    fetchStats(true);
+  }, [fetchStats]);
+
   useFocusEffect(
     useCallback(() => {
-      fetchStats();
+      fetchStats(false);
     }, [fetchStats])
   );
   
@@ -142,7 +167,7 @@ const handleSignOut = async () => {
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => Linking.openURL('https://bigyan224.github.io/ReclaimIt/')}>
           <Ionicons name="information-circle-outline" size={24} color="#333" />
           <Text style={styles.menuText}>{t('profile.about')}</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
