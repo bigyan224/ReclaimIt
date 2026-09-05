@@ -1,6 +1,31 @@
 import { clerkClient } from "@clerk/clerk-sdk-node";
 import Institution from "../models/institution.model.js";
 import User from "../models/user.model.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("usersync");
+
+// Short in-memory cache: one app open fires 5-10 authed requests within
+// seconds, each calling getOrCreateUser. Without this, every request repeats
+// the Mongo lookup + 3 institution queries (+ a Clerk API call for new users).
+const USER_CACHE_TTL_MS = 30 * 1000;
+const userCache = new Map(); // clerkUserId -> { user, expiresAt }
+
+function getCachedUser(clerkUserId) {
+  const entry = userCache.get(clerkUserId);
+  if (entry && Date.now() < entry.expiresAt) return entry.user;
+  userCache.delete(clerkUserId);
+  return null;
+}
+
+function setCachedUser(clerkUserId, user) {
+  if (userCache.size > 5000) userCache.clear();
+  userCache.set(clerkUserId, { user, expiresAt: Date.now() + USER_CACHE_TTL_MS });
+}
+
+export function invalidateUserCache(clerkUserId) {
+  if (clerkUserId) userCache.delete(clerkUserId);
+}
 
 const emailDomainOf = (email) => {
   const value = String(email || "").toLowerCase().trim();
@@ -61,10 +86,11 @@ export async function syncUserInstitutionMembership(user) {
   user.adminInstitutions = adminIds;
   await user.save();
 
-  console.log(
-    `Synced institution membership for user ${user._id} (${email}): ` +
-      `${memberIds.length} member(s), ${adminIds.length} admin(s)`
-  );
+  log.debug("Synced institution membership", {
+    userId: String(user._id),
+    members: memberIds.length,
+    admins: adminIds.length,
+  });
 
   return user;
 }
@@ -76,9 +102,14 @@ export async function syncUserInstitutionMembership(user) {
 export async function getOrCreateUser(clerkUserId) {
   if (!clerkUserId) return null;
 
+  const cached = getCachedUser(clerkUserId);
+  if (cached) return cached;
+
   let user = await User.findOne({ clerkId: clerkUserId });
   if (user) {
-    return syncUserInstitutionMembership(user);
+    const synced = await syncUserInstitutionMembership(user);
+    setCachedUser(clerkUserId, synced);
+    return synced;
   }
 
   try {
@@ -91,11 +122,13 @@ export async function getOrCreateUser(clerkUserId) {
       name: `${clerkUser.firstName ?? ""} ${clerkUser.lastName ?? ""}`.trim(),
     });
 
-    console.log(`Synced user from Clerk: ${clerkUserId} -> ${user._id}`);
+    log.info("Created local user from Clerk", { userId: String(user._id) });
 
-    return syncUserInstitutionMembership(user);
+    const synced = await syncUserInstitutionMembership(user);
+    setCachedUser(clerkUserId, synced);
+    return synced;
   } catch (err) {
-    console.error("Failed to sync user from Clerk:", err?.message || err);
+    log.error("Failed to sync user from Clerk", err);
     return null;
   }
 }

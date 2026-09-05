@@ -5,6 +5,9 @@ import { USER_ROLES, USER_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { userInstitutionFilter } from "../utils/institutionFilter.js";
 import { safeRegex } from "../utils/safeSearch.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-users");
 
 export const listUsers = async (req, res) => {
   try {
@@ -46,7 +49,7 @@ export const listUsers = async (req, res) => {
 
     res.status(200).json({ success: true, users: enrichedUsers, pagination: buildPagination({ page, limit, total }) });
   } catch (error) {
-    console.error("Admin list users error:", error);
+    log.error("Admin list users error:", error);
     res.status(500).json({ success: false, message: "Failed to load users" });
   }
 };
@@ -63,12 +66,13 @@ export const updateUserBan = async (req, res) => {
       if (banned && clerkClient.users.banUser) await clerkClient.users.banUser(user.clerkId);
       if (!banned && clerkClient.users.unbanUser) await clerkClient.users.unbanUser(user.clerkId);
     } catch (error) {
-      console.warn("Clerk ban sync failed:", error?.message || error);
+      log.warn("Clerk ban sync failed", error?.message || error);
     }
 
+    log.info("Admin changed user ban", { userId: String(user._id), banned, by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error("Admin ban user error:", error);
+    log.error("Admin ban user error:", error);
     res.status(500).json({ success: false, message: "Failed to update user ban status" });
   }
 };
@@ -90,12 +94,13 @@ export const updateUserRole = async (req, res) => {
         publicMetadata: { role: role === "ADMIN" ? "admin" : "user" },
       });
     } catch (error) {
-      console.warn("Clerk role metadata sync failed:", error?.message || error);
+      log.warn("Clerk role metadata sync failed", error?.message || error);
     }
 
+    log.info("Admin changed user role", { userId: String(user._id), role, by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error("Admin update user role error:", error);
+    log.error("Admin update user role error:", error);
     res.status(500).json({ success: false, message: "Failed to update user role" });
   }
 };
@@ -112,9 +117,10 @@ export const updateUserStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    log.info("Admin changed user status", { userId: String(user._id), status, by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error("Admin update user status error:", error);
+    log.error("Admin update user status error:", error);
     res.status(500).json({ success: false, message: "Failed to update user status" });
   }
 };

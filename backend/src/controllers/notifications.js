@@ -1,6 +1,9 @@
 import Notification from "../models/notification.model.js";
 import User from "../models/user.model.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("notifications");
 
 // Get all notifications for current user
 export const getNotifications = async (req, res) => {
@@ -31,7 +34,7 @@ export const getNotifications = async (req, res) => {
       notifications
     });
   } catch (error) {
-    console.error("Error fetching notifications:", error);
+    log.error("Error fetching notifications:", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 
@@ -73,7 +76,7 @@ export const markAsRead = async (req, res) => {
       message: "Notification marked as read"
     });
   } catch (error) {
-    console.error("Error marking notification as read:", error);
+    log.error("Error marking notification as read:", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 
@@ -104,7 +107,7 @@ export const markAllAsRead = async (req, res) => {
       message: "All notifications marked as read"
     });
   } catch (error) {
-    console.error("Error marking all notifications as read:", error);
+    log.error("Error marking all notifications as read:", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 
@@ -145,7 +148,7 @@ export const deleteNotification = async (req, res) => {
       message: "Notification deleted"
     });
   } catch (error) {
-    console.error("Error deleting notification:", error);
+    log.error("Error deleting notification:", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 

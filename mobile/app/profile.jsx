@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useI18n } from '../i18n/I18nProvider';
 import { getAuthenticatedApi } from '../services/api';
+import { getApiToken } from '../lib/authToken';
 
 let cachedProfileStats = null;
 let cachedProfileStatsAt = 0;
@@ -44,22 +45,27 @@ export default function ProfileScreen() {
     const isFirstLoad = !cachedProfileStats;
     if (isFirstLoad) setStatsLoading(true);
     try {
-      const token = await getTokenRef.current({ skipCache: true });
+      const token = await getApiToken(getTokenRef.current);
+      if (!token) {
+        if (isFirstLoad) setStatsLoading(false);
+        return;
+      }
       const api = getAuthenticatedApi(token, getTokenRef.current);
-      const [itemsRes, countRes] = await Promise.all([
-        api.getItems().catch(() => ({ items: [] })),
+      // Two cheap calls: one aggregation for counts + one DB count for matches.
+      // (Previously this pulled the ENTIRE items collection with populate.)
+      const [summaryRes, countRes] = await Promise.all([
+        api.getMyItemsSummary().catch(() => null),
         api.getMyMatchesCount().catch(() => ({ count: 0 })),
       ]);
-      const allItems = itemsRes?.items ?? [];
-      const myItems = allItems.filter((it) => {
-        const clerkId = typeof it.user === 'object' ? it.user?.clerkId : null;
-        if (clerkId) return clerkId === user.id;
-        return false;
-      });
-      const found = myItems.filter((it) => it.type === 'FOUND').length;
-      const lost = myItems.filter((it) => it.type === 'LOST').length;
-      const matches = countRes?.count ?? 0;
-      const next = { found, lost, matches };
+      if (!summaryRes) {
+        if (isFirstLoad) setStatsLoading(false);
+        return;
+      }
+      const next = {
+        found: summaryRes.found ?? 0,
+        lost: summaryRes.lost ?? 0,
+        matches: countRes?.count ?? 0,
+      };
       cachedProfileStats = next;
       cachedProfileStatsAt = now;
       setStats(next);

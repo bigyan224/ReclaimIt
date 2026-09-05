@@ -11,8 +11,8 @@
       "supportsTablet": true
     },
     "extra": {
-      "EXPO_PUBLIC_API_URL": "http://192.168.1.68:5001/api",
-      "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
+                                "EXPO_PUBLIC_API_URL":  "https://reclaimit-idf4.onrender.com/api",
+                                "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY":  "pk_test_bmVhcmJ5LWJ1enphcmQtNzIuY2xlcmsuYWNjb3VudHMuZGV2JA",
       "router": {},
       "eas": {
         "projectId": "6e6249f0-7d11-4c5e-896d-19f3724ef45b"

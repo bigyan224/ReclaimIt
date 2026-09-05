@@ -2,6 +2,7 @@ import express from "express";
 import {
   getOrCreateChat,
   getMyChats,
+  getChatById,
   getChatMessages,
   sendMessage,
   deleteChat
@@ -18,6 +19,9 @@ router.get("/", getMyChats);
 
 // GET /api/chats/match/:matchedItemId - Get or create chat for a matched item
 router.get("/match/:matchedItemId", getOrCreateChat);
+
+// GET /api/chats/:chatId - Get a single chat (for opening a conversation)
+router.get("/:chatId", getChatById);
 
 // GET /api/chats/:chatId/messages - Get messages for a chat
 router.get("/:chatId/messages", getChatMessages);

@@ -2,6 +2,9 @@ import Chat from "../models/chat.model.js";
 import Message from "../models/message.model.js";
 import MatchedItem from "../models/matchedItem.model.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("chat");
 
 const emitMessageToChatRoom = (req, chatId, messagePayload) => {
   const io = req.app.get("io");
@@ -79,7 +82,7 @@ export const getOrCreateChat = async (req, res) => {
       chat
     });
   } catch (error) {
-    console.error("Error getting/creating chat:", error);
+    log.error("Error getting/creating chat:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error"
@@ -135,7 +138,53 @@ export const getMyChats = async (req, res) => {
       chats: formattedChats
     });
   } catch (error) {
-    console.error("Error fetching chats:", error);
+    log.error("Error fetching chats:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+// Get a single chat by id (cheap — lets conversation open without pulling the whole list)
+export const getChatById = async (req, res) => {
+  try {
+    const { clerkUserId } = req;
+    const { chatId } = req.params;
+
+    const user = await getOrCreateUser(clerkUserId);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const chat = await Chat.findById(chatId)
+      .populate('participants', 'clerkId name email')
+      .populate('items', 'itemName type category image');
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: "Chat not found"
+      });
+    }
+
+    const isParticipant = chat.participants.some(
+      p => (p._id || p).toString() === user._id.toString()
+    );
+
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not part of this chat"
+      });
+    }
+
+    res.status(200).json({ success: true, chat });
+  } catch (error) {
+    log.error("Error fetching chat by id", error);
     res.status(500).json({
       success: false,
       message: "Internal server error"
@@ -240,7 +289,7 @@ export const getChatMessages = async (req, res) => {
       hasMore: messages.length === parseInt(limit)
     });
   } catch (error) {
-    console.error("Error fetching messages:", error);
+    log.error("Error fetching messages:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error"
@@ -352,7 +401,7 @@ export const sendMessage = async (req, res) => {
       message
     });
   } catch (error) {
-    console.error("Error sending message:", error);
+    log.error("Error sending message:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error"
@@ -401,7 +450,7 @@ export const deleteChat = async (req, res) => {
       message: "Chat archived successfully"
     });
   } catch (error) {
-    console.error("Error deleting chat:", error);
+    log.error("Error deleting chat:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error"

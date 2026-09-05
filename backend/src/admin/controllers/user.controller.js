@@ -13,7 +13,7 @@ export const getAdminUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Admin get user error:", error);
+    log.error("Admin get user error:", error);
     res.status(500).json({ success: false, message: "Failed to load user info" });
   }
 };

@@ -4,6 +4,9 @@ import Item from "../../models/item.model.js";
 import MatchedItem from "../../models/matchedItem.model.js";
 import User from "../../models/user.model.js";
 import { itemInstitutionFilter, userInstitutionFilter } from "../utils/institutionFilter.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-dashboard");
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -66,7 +69,7 @@ export const getDashboardStats = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Admin stats error:", error);
+    log.error("Admin stats error:", error);
     res.status(500).json({ success: false, message: "Failed to load dashboard stats" });
   }
 };
@@ -115,7 +118,7 @@ export const getDashboardAnalytics = async (req, res) => {
 
     res.status(200).json({ success: true, itemVolume, matchVolume });
   } catch (error) {
-    console.error("Admin analytics error:", error);
+    log.error("Admin analytics error:", error);
     res.status(500).json({ success: false, message: "Failed to load analytics" });
   }
 };

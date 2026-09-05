@@ -4,6 +4,9 @@ import cloudinary from "../config/cloudinary.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("upload");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,7 +85,7 @@ export const uploadToCloudinary = async (filePath, folder = "reclaimit/temp") =>
     });
     return result;
   } catch (error) {
-    console.error("Error uploading to Cloudinary:", error);
+    log.error("Error uploading to Cloudinary", error);
     throw error;
   }
 };

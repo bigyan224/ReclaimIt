@@ -3,6 +3,9 @@ import Message from "../../models/message.model.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { userInstitutionFilter } from "../utils/institutionFilter.js";
 import User from "../../models/user.model.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-chats");
 
 export const listChatDisputes = async (req, res) => {
   try {
@@ -29,7 +32,7 @@ export const listChatDisputes = async (req, res) => {
 
     res.status(200).json({ success: true, disputes: chats, pagination: buildPagination({ page, limit, total }) });
   } catch (error) {
-    console.error("Admin list chat disputes error:", error);
+    log.error("Admin list chat disputes error:", error);
     res.status(500).json({ success: false, message: "Failed to load chat disputes" });
   }
 };
@@ -62,7 +65,7 @@ export const getChatTranscript = async (req, res) => {
 
     res.status(200).json({ success: true, chat, messages });
   } catch (error) {
-    console.error("Admin chat transcript error:", error);
+    log.error("Admin chat transcript error:", error);
     res.status(500).json({ success: false, message: "Failed to load chat transcript" });
   }
 };

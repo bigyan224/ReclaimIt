@@ -1,5 +1,8 @@
 import { verifyToken } from "@clerk/clerk-sdk-node";
 import User from "../models/user.model.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("auth");
 
 const CLERK_CLOCK_SKEW_MS = Number(process.env.CLERK_CLOCK_SKEW_MS || 5 * 60 * 1000);
 
@@ -27,7 +30,7 @@ export const requireAuth = async (req, res, next) => {
     req.clerkUserId = payload.sub; // 🔑 Clerk user id
     next();
   } catch (error) {
-    console.error("Auth error:", error);
+    log.debug("Auth rejected", error);
     res.status(401).json({ error: "Invalid or expired token" });
   }
 };

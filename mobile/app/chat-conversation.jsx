@@ -21,6 +21,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { getAuthenticatedApi } from '../services/api';
 import socketService from '../services/socket';
 import { useI18n } from '../i18n/I18nProvider';
+import { getApiToken } from '../lib/authToken';
 
 let cachedMessagesMap = new Map();
 let cachedChatInfoMap = new Map();
@@ -106,21 +107,22 @@ export default function ChatConversationScreen() {
         if (!cachedMessagesMap.has(chatId)) setLoading(true);
       }
       try {
-        const token = await getTokenRef.current({ skipCache: true });
+        const token = await getApiToken(getTokenRef.current);
+        if (!token) {
+          if (mounted && !cachedMessagesMap.has(chatId)) setLoading(false);
+          return;
+        }
         const api = getAuthenticatedApi(token, getTokenRef.current);
-        // If we have cached chatInfo, we don't need to refetch chats list
-        const needChats = !cachedChatInfoMap.has(chatId);
-        const [chatsResponse, messagesResponse] = await Promise.all([
-          needChats ? withColdStartRetry(() => api.getChats()) : Promise.resolve({ chats: [] }),
+        // Single-chat fetch — no longer pulls the entire chats list (with 3
+        // populates) just to open one conversation
+        const [chatResponse, messagesResponse] = await Promise.all([
+          withColdStartRetry(() => api.getChat(chatId)),
           withColdStartRetry(() => api.getChatMessages(chatId)),
         ]);
 
         if (!mounted) return;
 
-        let currentChat = cachedChatInfoMap.get(chatId) || null;
-        if (needChats && chatsResponse.chats) {
-          currentChat = chatsResponse.chats.find((c) => c._id === chatId) || currentChat;
-        }
+        const currentChat = chatResponse.chat || cachedChatInfoMap.get(chatId) || null;
         if (currentChat) {
           cachedChatInfoMap.set(chatId, currentChat);
           setChatInfo(currentChat);
@@ -164,7 +166,7 @@ export default function ChatConversationScreen() {
     // Connect to socket and join chat room
     const initSocket = async () => {
       try {
-        const token = await getTokenRef.current();
+        const token = await getApiToken(getTokenRef.current);
         if (!socketService.isConnected()) {
           socketService.connect(user?.id, [chatId], token);
         } else {

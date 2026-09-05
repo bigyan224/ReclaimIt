@@ -5,10 +5,12 @@ import Notification from "../models/notification.model.js";
 import cloudinary from "../config/cloudinary.js";
 import { autoMatchNewItem } from "./matching.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("items");
 
 // Controller to handle reporting lost or found items
 export const reportItem = async (req, res) => {
-  console.log(req.body)
   try {
     const {
       name,
@@ -82,7 +84,7 @@ export const reportItem = async (req, res) => {
       try {
         await cloudinary.api.resource(imageData.publicId);
       } catch (err) {
-        console.error("Image verification failed:", err?.message || err);
+        log.debug("Image verification failed", err);
         return res.status(400).json({
           success: false,
           message: "Uploaded image not found or expired. Please re-upload the image.",
@@ -126,12 +128,12 @@ export const reportItem = async (req, res) => {
     const newItem = new Item(itemData);
     await newItem.save();
 
-    console.log(`📝 Item saved: ${newItem._id} - Starting background matching...`);
+    log.info("Item reported", { itemId: String(newItem._id), type: newItem.type });
 
     // Run matching algorithm in background (non-blocking), pass io for live notification push
     const io = req.app?.get("io") || null;
     autoMatchNewItem(newItem._id, io).catch(err => {
-      console.error("❌ Background matching failed:", err);
+      log.error("Background matching failed", err);
     });
 
     res.status(201).json({
@@ -140,7 +142,7 @@ export const reportItem = async (req, res) => {
       item: newItem,
     });
   } catch (error) {
-    console.error("Error reporting item:", error);
+    log.error("Error reporting item", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -153,6 +155,9 @@ export const getItems = async (req, res) => {
   try {
     const filter = {};
     const { type, near, radius, institution } = req.query;
+    // Bounded page size — the mobile app used to pull the entire collection
+    // (with populate) on every open, which gets slower as data grows
+    const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 200);
 
     if (type) filter.type = type.toUpperCase();
 
@@ -183,17 +188,50 @@ export const getItems = async (req, res) => {
       }
     }
 
-    const items = await Item.find(filter).populate("user", "name email clerkId").sort({ createdAt: -1 });
+    const items = await Item.find(filter).populate("user", "name email clerkId").sort({ createdAt: -1 }).limit(limit);
     res.status(200).json({
       success: true,
       items,
     });
   } catch (error) {
-    console.error("Error fetching items:", error);
+    log.error("Error fetching items", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
     });
+  }
+};
+
+// Lightweight counts for profile stats — one aggregation instead of pulling
+// the whole collection with populate just to count two numbers
+export const getMyItemsSummary = async (req, res) => {
+  try {
+    const { clerkUserId } = req;
+
+    const user = await getOrCreateUser(clerkUserId);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication failed",
+      });
+    }
+
+    const counts = await Item.aggregate([
+      { $match: { user: user._id } },
+      { $group: { _id: "$type", count: { $sum: 1 } } },
+    ]);
+
+    let found = 0;
+    let lost = 0;
+    for (const row of counts) {
+      if (row._id === "FOUND") found = row.count;
+      else if (row._id === "LOST") lost = row.count;
+    }
+
+    res.status(200).json({ success: true, found, lost, total: found + lost });
+  } catch (error) {
+    log.error("Error fetching my items summary", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -218,7 +256,7 @@ export const getItemById = async (req, res) => {
 
     res.status(200).json({ success: true, item });
   } catch (error) {
-    console.error("Error fetching item by id:", error);
+    log.error("Error fetching item by id", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -298,7 +336,7 @@ export const updateItem = async (req, res) => {
       try {
         await cloudinary.api.resource(imageData.publicId);
       } catch (err) {
-        console.error('Image verification failed:', err?.message || err);
+        log.debug("Image verification failed on update", err);
         return res.status(400).json({
           success: false,
           message: 'Uploaded image not found or expired. Please re-upload the image.',
@@ -338,10 +376,12 @@ export const updateItem = async (req, res) => {
       ],
     });
 
+    log.info("Item updated", { itemId: String(savedItem._id) });
+
     // Run matching algorithm in background (non-blocking), pass io for live notification push
     const io = req.app?.get("io") || null;
     autoMatchNewItem(savedItem._id, io).catch(err => {
-      console.error('❌ Background matching failed:', err);
+      log.error('Background matching failed on update', err);
     });
 
     const updatedItem = await Item.findById(savedItem._id).populate('user', 'name email clerkId');
@@ -352,7 +392,7 @@ export const updateItem = async (req, res) => {
       item: updatedItem,
     });
   } catch (error) {
-    console.error('Error updating item:', error);
+    log.error('Error updating item', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
@@ -381,16 +421,17 @@ export const deleteItem = async (req, res) => {
       try {
         await cloudinary.uploader.destroy(item.image.publicId);
       } catch (err) {
-        console.warn('Cloudinary deletion failed for', item.image.publicId, err?.message || err);
+        log.warn('Cloudinary deletion failed', { publicId: item.image.publicId, err });
         // Do not fail the whole request if image cleanup fails
       }
     }
 
     await item.deleteOne();
+    log.info("Item deleted", { itemId: String(itemId) });
 
     res.status(200).json({ success: true, message: 'Item deleted successfully' });
   } catch (error) {
-    console.error('Error deleting item:', error);
+    log.error('Error deleting item', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

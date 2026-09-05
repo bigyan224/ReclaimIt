@@ -4,6 +4,9 @@ import Notification from "../models/notification.model.js";
 import { scoreCandidatesWithGemini } from "../services/geminiMatching.js";
 import { getOrCreateUser } from "../utils/userSync.js";
 import { emitToUser } from "../config/socket.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("matching");
 
 // Simple configuration
 const GEO_RADIUS_KM = 20;
@@ -172,7 +175,7 @@ function scoreCandidatesWithRuleFallback(item, candidatesWithDistance) {
 // Matching mode configuration
 const MATCH_PROVIDER = process.env.MATCH_PROVIDER || "gemini";
 
-console.log(`[Matching] Using provider mode: ${MATCH_PROVIDER}`);
+log.info(`Using provider mode: ${MATCH_PROVIDER}`);
 
 async function scoreCandidatesForItem(item, candidatesWithDistance) {
   let geminiScores = [];
@@ -186,12 +189,12 @@ async function scoreCandidatesForItem(item, candidatesWithDistance) {
       });
     } catch (error) {
       geminiError = error?.message || error;
-      console.error("Gemini scoring unavailable:", geminiError);
+      log.warn("Gemini scoring unavailable, using rule fallback", { err: geminiError });
     }
   }
 
   if (geminiScores.length === 0) {
-    console.warn("Gemini mode selected but API unavailable, falling back to rules");
+    log.warn("Gemini unavailable, falling back to rules");
     const fallbackScores = scoreCandidatesWithRuleFallback(item, candidatesWithDistance);
     return candidatesWithDistance.map(({ item: candidate, distanceKm }) => {
       const fallbackScore = fallbackScores.find((s) => s.candidateId === String(candidate._id)) || {
@@ -325,7 +328,7 @@ export const findMatches = async (req, res) => {
       matches: goodMatches.slice(0, 20) // Top 20 matches
     });
   } catch (error) {
-    console.error("Error finding matches:", error);
+    log.error("Error finding matches", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 
@@ -428,7 +431,7 @@ export const getMyItemMatches = async (req, res) => {
       results
     });
   } catch (error) {
-    console.error("Error getting matches:", error);
+    log.error("Error getting matches", error);
     res.status(500).json({ 
       success: false, 
       message: "Internal server error" 
@@ -450,7 +453,7 @@ export const getMyMatchesCount = async (req, res) => {
     });
     res.status(200).json({ success: true, count });
   } catch (error) {
-    console.error("Error getting my matches count:", error);
+    log.error("Error getting my matches count", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -508,10 +511,10 @@ export const getMatchedItemByItems = async (req, res) => {
       matchedItem
     });
   } catch (error) {
-    console.error("Error getting matched item:", error);
-    res.status(500).json({
+    log.error("Error getting matched item", error);
+    res.status(404).json({
       success: false,
-      message: "Internal server error"
+      message: "Matched item not found"
     });
   }
 };
@@ -527,7 +530,10 @@ export const getMatchedItemById = async (req, res) => {
     const matchedItem = await MatchedItem.findById(id)
       .populate("sourceItem matchedItem sourceUser matchedUser");
 
-    if (!matchedItem) return res.status(404).json({ success: false, message: "Match not found" });
+    if (!matchedItem) {
+      log.debug("Match not found", { id: String(id) });
+      return res.status(404).json({ success: false, message: "Match not found" });
+    }
 
     const isParticipant =
       String(matchedItem.sourceUser._id) === String(user._id) ||
@@ -537,7 +543,7 @@ export const getMatchedItemById = async (req, res) => {
 
     res.json({ success: true, matchedItem });
   } catch (error) {
-    console.error("Error getting matched item:", error);
+    log.error("Error getting matched item by id", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -546,28 +552,28 @@ export const getMatchedItemById = async (req, res) => {
 // io is optional — when provided, match notifications are pushed live via socket
 export const autoMatchNewItem = async (itemId, io = null) => {
   try {
-    console.log(`\n🔍 Starting auto-match for item: ${itemId}`);
-    
+    log.info("Starting auto-match", { itemId: String(itemId) });
+
     const item = await Item.findById(itemId).populate('user');
     if (!item) {
-      console.error("❌ Item not found for auto-matching:", itemId);
+      log.warn("Item not found for auto-matching", { itemId: String(itemId) });
       return;
     }
 
-    console.log(`✓ Item found: ${item.itemName} (${item.type})`);
+    log.debug("Auto-match item loaded", { name: item.itemName, type: item.type });
 
     // Check if item has location
     const itemCoords = item.location?.coordinates?.coordinates;
     if (!itemCoords) {
-      console.log("⚠️ Item has no coordinates, skipping auto-match:", itemId);
+      log.debug("Item has no coordinates, skipping auto-match", { itemId: String(itemId) });
       return;
     }
 
-    console.log(`✓ Item coordinates: [${itemCoords[0]}, ${itemCoords[1]}]`);
+    log.debug("Item coordinates resolved", { coords: [itemCoords[0], itemCoords[1]] });
 
     // Find opposite type items within 20km
     const oppositeType = item.type === "LOST" ? "FOUND" : "LOST";
-    console.log(`🔎 Looking for ${oppositeType} items within ${GEO_RADIUS_KM}km...`);
+    log.debug(`Looking for ${oppositeType} items`, { radiusKm: GEO_RADIUS_KM });
     
     const candidates = await Item.find({
       type: oppositeType,
@@ -584,17 +590,21 @@ export const autoMatchNewItem = async (itemId, io = null) => {
       }
     }).limit(100).populate('user');
 
-    console.log(`✓ Found ${candidates.length} candidate items`);
+    log.debug("Candidate search complete", { count: candidates.length });
 
     const candidatesWithDistance = buildCandidatesWithDistance(itemCoords, candidates);
     const scoredCandidates = await scoreCandidatesForItem(item, candidatesWithDistance);
 
     // Score all candidates and filter by minimum score
     const matchesToSave = [];
-    
+
     for (const { candidate, score, breakdown, distanceKm } of scoredCandidates) {
-      console.log(`  - ${candidate.itemName}: Score ${score.toFixed(1)} (${getMatchStrength(score)})`);
-      
+      log.debug("Candidate scored", {
+        name: candidate.itemName,
+        score: Math.round(score * 100) / 100,
+        strength: getMatchStrength(score),
+      });
+
       // Only save matches above minimum threshold
       if (score >= MIN_MATCH_SCORE) {
         matchesToSave.push({
@@ -613,7 +623,7 @@ export const autoMatchNewItem = async (itemId, io = null) => {
       }
     }
 
-    console.log(`\n📊 Matches to save: ${matchesToSave.length}`);
+    log.debug("Scoring complete", { aboveThreshold: matchesToSave.length });
 
     // Bulk insert matches (ignore duplicates)
     if (matchesToSave.length > 0) {
@@ -621,21 +631,25 @@ export const autoMatchNewItem = async (itemId, io = null) => {
         .catch(err => {
           // Ignore duplicate key errors (code 11000)
           if (err.code !== 11000) {
-            console.error("❌ Error saving matches:", err);
+            log.error("Error saving matches", err);
             throw err;
           } else {
-            console.log("⚠️ Some duplicate matches were skipped");
+            log.debug("Some duplicate matches were skipped");
           }
         });
-      
-      console.log(`✅ Successfully saved ${matchesToSave.length} matches to database`);
-      
+
       // Count by strength for logging
       const strong = matchesToSave.filter(m => m.matchStrength === "strong").length;
       const medium = matchesToSave.filter(m => m.matchStrength === "medium").length;
       const weak = matchesToSave.filter(m => m.matchStrength === "weak").length;
-      
-      console.log(`   💪 Strong: ${strong}, 👍 Medium: ${medium}, 👌 Weak: ${weak}`);
+
+      log.info("Auto-match complete", {
+        itemId: String(itemId),
+        saved: matchesToSave.length,
+        strong,
+        medium,
+        weak,
+      });
 
       // Create notifications for medium and strong matches
       const notificationsToCreate = [];
@@ -687,9 +701,7 @@ export const autoMatchNewItem = async (itemId, io = null) => {
       // Save notifications
       if (notificationsToCreate.length > 0) {
         const savedNotifications = await Notification.insertMany(notificationsToCreate);
-        const strongCount = notificationsToCreate.filter(n => n.title.includes("Strong")).length;
-        const mediumCount = notificationsToCreate.filter(n => n.title.includes("Possible")).length;
-        console.log(`🔔 Created ${notificationsToCreate.length} notifications for both users (${strongCount} strong, ${mediumCount} medium)\n`);
+        log.debug("Match notifications created", { count: savedNotifications.length });
 
         // Push live via socket so home bell updates instantly (no reopen needed)
         if (io) {
@@ -710,17 +722,19 @@ export const autoMatchNewItem = async (itemId, io = null) => {
               }
             }
           } catch (emitErr) {
-            console.error("Socket notification emit failed:", emitErr?.message || emitErr);
+            log.warn("Socket notification emit failed", emitErr);
           }
         }
       }
       
     } else {
-      console.log(`⚠️ No matches found above threshold (${MIN_MATCH_SCORE}) for item ${itemId}\n`);
+      log.info("Auto-match complete: no matches above threshold", {
+        itemId: String(itemId),
+        threshold: MIN_MATCH_SCORE,
+      });
     }
 
   } catch (error) {
-    console.error("❌ Error in auto-matching:", error);
-    console.error(error.stack);
+    log.error("Error in auto-matching", error);
   }
 };

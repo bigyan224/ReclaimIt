@@ -1,5 +1,8 @@
 import { clerkClient, verifyToken } from "@clerk/clerk-sdk-node";
 import User from "../../models/user.model.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-auth");
 
 const CLERK_CLOCK_SKEW_MS = Number(process.env.CLERK_CLOCK_SKEW_MS || 5 * 60 * 1000);
 
@@ -37,7 +40,7 @@ async function authenticate(req) {
       const clerkUser = await clerkClient.users.getUser(payload.sub);
       isMasterAdmin = hasAdminMetadata(payload, clerkUser);
     } catch (error) {
-      console.warn("Unable to fetch Clerk user for admin metadata check:", error?.message || error);
+      log.warn("Unable to fetch Clerk user for admin metadata check", error?.message || error);
     }
   }
   req.isMasterAdmin = isMasterAdmin;
@@ -57,7 +60,7 @@ export const requireMasterAdmin = async (req, res, next) => {
     req.adminUser = req.localUser;
     next();
   } catch (error) {
-    console.error("Admin auth error:", error);
+    log.error("Admin auth error:", error);
     res.status(401).json({ success: false, message: "Invalid or expired token" });
   }
 };
@@ -87,7 +90,7 @@ export const requireInstitutionAccess = async (req, res, next) => {
     req.adminUser = req.localUser;
     next();
   } catch (error) {
-    console.error("Auth error:", error);
+    log.error("Auth error:", error);
     res.status(401).json({ success: false, message: "Invalid or expired token" });
   }
 };
@@ -107,7 +110,7 @@ export const requireAdminPanelAccess = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.error("Auth error:", error);
+    log.error("Auth error:", error);
     res.status(401).json({ success: false, message: "Invalid or expired token" });
   }
 };

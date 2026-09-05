@@ -4,6 +4,9 @@ import Item from "../models/item.model.js";
 import Chat from "../models/chat.model.js";
 import Notification from "../models/notification.model.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("claim");
 
 const ensureClaim = (matchedItem) => {
   if (!matchedItem.claim) {
@@ -72,9 +75,10 @@ export const requestClaim = async (req, res) => {
 
     emitClaimToChatRoom(req, matchedItem);
 
+    log.info("Claim requested", { matchId: String(matchedItem._id), by: String(user._id) });
     res.json({ success: true, matchedItem });
   } catch (error) {
-    console.error("Request claim error:", error);
+    log.error("Request claim error:", error);
     res.status(500).json({ success: false, message: "Failed to request claim" });
   }
 };
@@ -176,12 +180,13 @@ export const confirmClaim = async (req, res) => {
 
     emitClaimToChatRoom(req, matchedItem);
 
+    log.info("Claim confirmed — items marked CLAIMED", { matchId: String(matchedItem._id), by: String(user._id) });
     // Re-fetch for response
     const updated = await MatchedItem.findById(matchedItem._id);
     res.json({ success: true, matchedItem: updated });
   } catch (error) {
     await session.abortTransaction();
-    console.error("Confirm claim error:", error);
+    log.error("Confirm claim error:", error);
     res.status(500).json({ success: false, message: "Failed to confirm claim" });
   } finally {
     session.endSession();
@@ -232,9 +237,10 @@ export const cancelClaim = async (req, res) => {
 
     emitClaimToChatRoom(req, matchedItem);
 
+    log.info("Claim cancelled", { matchId: String(matchedItem._id), by: String(user._id) });
     res.json({ success: true, matchedItem });
   } catch (error) {
-    console.error("Cancel claim error:", error);
+    log.error("Cancel claim error:", error);
     res.status(500).json({ success: false, message: "Failed to cancel claim" });
   }
 };

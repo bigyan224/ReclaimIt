@@ -55,19 +55,19 @@ export const setupSocketHandlers = (io) => {
       }
 
       socket.userId = decoded.sub; // Verified Clerk id — sole identity source
-      console.log('✅ Socket authenticated for user:', decoded.sub);
+      log.debug('✅ Socket authenticated for user:', decoded.sub);
       next();
     } catch (error) {
-      console.error('Socket auth error:', error);
+      log.error('Socket auth error:', error);
       next(new Error("Unauthorized"));
     }
   });
 
   io.on("connection", (socket) => {
-    console.log(`\n🔌 New Socket Connection`);
-    console.log(`   Socket ID: ${socket.id}`);
-    console.log(`   Transport: ${socket.conn?.transport?.name || 'unknown'}`);
-    console.log(`   Remote Address: ${socket.handshake.address}`);
+    log.debug(`\n🔌 New Socket Connection`);
+    log.debug(`   Socket ID: ${socket.id}`);
+    log.debug(`   Transport: ${socket.conn?.transport?.name || 'unknown'}`);
+    log.debug(`   Remote Address: ${socket.handshake.address}`);
 
     // User authentication and joining
     socket.on("user:join", async ({ chatIds = [] } = {}) => {
@@ -79,7 +79,7 @@ export const setupSocketHandlers = (io) => {
         }
         // Store user connection
         connectedUsers.set(userId, socket.id);
-        console.log(`👤 User ${userId} connected with socket ${socket.id}`);
+        log.debug(`👤 User ${userId} connected with socket ${socket.id}`);
 
         // Join only chat rooms this user participates in
         const joinedChatIds = [];
@@ -88,9 +88,9 @@ export const setupSocketHandlers = (io) => {
             if (await isChatParticipant(chatId, userId)) {
               socket.join(`chat:${chatId}`);
               joinedChatIds.push(chatId);
-              console.log(`  → Joined chat room: ${chatId}`);
+              log.debug(`  → Joined chat room: ${chatId}`);
             } else {
-              console.log(`  → Denied join for chat room: ${chatId} (not a participant)`);
+              log.debug(`  → Denied join for chat room: ${chatId} (not a participant)`);
             }
           }
         }
@@ -106,7 +106,7 @@ export const setupSocketHandlers = (io) => {
           socket.to(`chat:${chatId}`).emit("user:online", { userId, chatId });
         });
       } catch (error) {
-        console.error("Error in user:join:", error);
+        log.error("Error in user:join:", error);
         socket.emit("connection:error", { message: "Failed to join" });
       }
     });
@@ -118,20 +118,20 @@ export const setupSocketHandlers = (io) => {
         return socket.emit("connection:error", { message: "Unauthorized" });
       }
       if (!(await isChatParticipant(chatId, userId))) {
-        console.log(`⛔ Denied chat:join for user ${userId} in chat ${chatId}`);
+        log.debug(`⛔ Denied chat:join for user ${userId} in chat ${chatId}`);
         return socket.emit("connection:error", { message: "Not a participant" });
       }
       socket.join(`chat:${chatId}`);
-      console.log(`👤 User ${userId} joined chat room: ${chatId}`);
+      log.debug(`👤 User ${userId} joined chat room: ${chatId}`);
 
       // Notify others in the room that user is online
-      console.log(`📢 Broadcasting user:online to chat:${chatId} for user ${userId}`);
+      log.debug(`📢 Broadcasting user:online to chat:${chatId} for user ${userId}`);
       socket.to(`chat:${chatId}`).emit("user:online", { userId, chatId });
       
       // Also send back current online users in this chat to the joiner
       const socketsInRoom = io.sockets.adapter.rooms.get(`chat:${chatId}`);
       if (socketsInRoom) {
-        console.log(`   Found ${socketsInRoom.size} socket(s) in room chat:${chatId}`);
+        log.debug(`   Found ${socketsInRoom.size} socket(s) in room chat:${chatId}`);
         const onlineUsersInChat = new Set();
 
         // Load chat participants once for validation
@@ -139,7 +139,7 @@ export const setupSocketHandlers = (io) => {
         try {
           chatDoc = await Chat.findById(chatId).populate('participants', 'clerkId');
         } catch (err) {
-          console.error('Error loading chat for online user validation:', err);
+          log.error('Error loading chat for online user validation:', err);
         }
 
         for (const socketId of socketsInRoom) {
@@ -150,22 +150,22 @@ export const setupSocketHandlers = (io) => {
           if (chatDoc) {
             const isParticipant = chatDoc.participants.some(p => p.clerkId === sock.userId);
             if (!isParticipant) {
-              console.log(`   → Skipping user ${sock.userId} (not a participant in chat ${chatId})`);
+              log.debug(`   → Skipping user ${sock.userId} (not a participant in chat ${chatId})`);
               continue;
             }
           }
 
           onlineUsersInChat.add(sock.userId);
-          console.log(`   → User ${sock.userId} is already online in this chat`);
+          log.debug(`   → User ${sock.userId} is already online in this chat`);
         }
 
         if (onlineUsersInChat.size > 0) {
           for (const onlineUserId of onlineUsersInChat) {
-            console.log(`   📤 Sending user:online event to ${userId} about ${onlineUserId}`);
+            log.debug(`   📤 Sending user:online event to ${userId} about ${onlineUserId}`);
             socket.emit("user:online", { userId: onlineUserId, chatId });
           }
         } else {
-          console.log(`   ℹ️  No other users currently online in this chat`);
+          log.debug(`   ℹ️  No other users currently online in this chat`);
         }
       }
     });
@@ -175,7 +175,7 @@ export const setupSocketHandlers = (io) => {
       const userId = socketClerkId(socket);
       if (!userId || !chatId) return;
       socket.leave(`chat:${chatId}`);
-      console.log(`👤 User ${userId} left chat room: ${chatId}`);
+      log.debug(`👤 User ${userId} left chat room: ${chatId}`);
 
       socket.to(`chat:${chatId}`).emit("user:offline", { userId, chatId });
     });
@@ -196,10 +196,10 @@ export const setupSocketHandlers = (io) => {
           return cb && cb({ online: false });
         }
         const isOnline = connectedUsers.has(userId);
-        console.log(`user:status:query - user ${userId} online=${isOnline}`);
+        log.debug(`user:status:query - user ${userId} online=${isOnline}`);
         return cb && cb({ online: isOnline });
       } catch (err) {
-        console.error('Error handling user:status:query:', err);
+        log.error('Error handling user:status:query:', err);
         return cb && cb({ online: false });
       }
     });
@@ -214,7 +214,7 @@ export const setupSocketHandlers = (io) => {
           return socket.emit("message:error", { error: "Unauthorized", tempId: data?.tempId });
         }
         if (!(await isChatParticipant(chatId, senderId))) {
-          console.log(`⛔ Denied message:send for user ${senderId} in chat ${chatId}`);
+          log.debug(`⛔ Denied message:send for user ${senderId} in chat ${chatId}`);
           return socket.emit("message:error", { error: "Not a participant", tempId: data.tempId });
         }
 
@@ -224,7 +224,7 @@ export const setupSocketHandlers = (io) => {
           ? { _id: senderDoc._id, clerkId: senderDoc.clerkId, name: senderDoc.name, email: senderDoc.email }
           : { clerkId: senderId };
 
-        console.log(`💬 Message from ${senderId} in chat ${chatId}`);
+        log.debug(`💬 Message from ${senderId} in chat ${chatId}`);
 
         // Broadcast to everyone in the chat room including sender
         io.to(`chat:${chatId}`).emit("message:received", {
@@ -262,11 +262,11 @@ export const setupSocketHandlers = (io) => {
 
             await chat.save();
           } catch (err) {
-            console.error('Error updating chat after message send:', err);
+            log.error('Error updating chat after message send:', err);
           }
         }
       } catch (error) {
-        console.error("Error sending message:", error);
+        log.error("Error sending message:", error);
         socket.emit("message:error", {
           error: "Failed to send message",
           tempId: data.tempId,
@@ -302,12 +302,12 @@ export const setupSocketHandlers = (io) => {
         // SECURITY: reader identity comes from the verified token, never the client
         const userId = socketClerkId(socket);
         if (!userId || !(await isChatParticipant(chatId, userId))) return;
-        console.log(`📖 User ${userId} read ${messageIds?.length || 0} messages in chat ${chatId}`);
+        log.debug(`📖 User ${userId} read ${messageIds?.length || 0} messages in chat ${chatId}`);
 
         // Find user by clerkId to get the ObjectId stored in messages
         const userDoc = await User.findOne({ clerkId: userId });
         if (!userDoc) {
-          console.warn(`User with clerkId ${userId} not found - cannot mark messages as read`);
+          log.warn(`User with clerkId ${userId} not found - cannot mark messages as read`);
           return;
         }
         const userObjectId = userDoc._id;
@@ -346,9 +346,9 @@ export const setupSocketHandlers = (io) => {
           readAt: new Date(),
         });
 
-        console.log(`✅ Messages marked as read for user ${userId}`);
+        log.debug(`✅ Messages marked as read for user ${userId}`);
       } catch (error) {
-        console.error("Error marking messages as read:", error);
+        log.error("Error marking messages as read:", error);
       }
     });
 
@@ -360,7 +360,7 @@ export const setupSocketHandlers = (io) => {
         if (socketId === socket.id) {
           disconnectedUserId = uid;
           connectedUsers.delete(uid);
-          console.log(`👋 User ${uid} disconnected`);
+          log.debug(`👋 User ${uid} disconnected`);
           break;
         }
       }
@@ -377,7 +377,7 @@ export const setupSocketHandlers = (io) => {
         });
       }
 
-      console.log(`🔌 Socket disconnected: ${socket.id}`);
+      log.debug(`🔌 Socket disconnected: ${socket.id}`);
     });
   });
 

@@ -7,7 +7,7 @@ const SafeScreen = ({ children }) => {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={{ paddingTop: insets.top, flex: 1 }}>
+    <View style={{ paddingTop: insets.top, flex: 1, backgroundColor: COLORS.background }}>
       {children}
     </View>
   );

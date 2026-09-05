@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getAuthenticatedApi } from '../services/api';
 import socketService from '../services/socket';
 import { useI18n } from '../i18n/I18nProvider';
+import { getApiToken } from '../lib/authToken';
 
 // Module-level cache to avoid re-fetch on tab switches/remounts in same app session.
 let cachedChats = null;
@@ -77,7 +78,7 @@ export default function ChatScreen() {
       }
 
       const runFetch = async () => {
-        const token = await getToken({ skipCache: true });
+        const token = await getApiToken(getToken);
         const api = getAuthenticatedApi(token, getToken);
         const response = await withColdStartRetry(() => api.getChats());
         cachedChats = response.chats || [];
@@ -96,7 +97,7 @@ export default function ChatScreen() {
       }
 
       setChats(fetchResult.chats);
-      const token = await getToken({ skipCache: true });
+      const token = fetchResult.token;
       const chatsToConnect = fetchResult.chats;
       
       // Connect to socket with all chat IDs

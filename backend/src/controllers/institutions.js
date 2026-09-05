@@ -1,5 +1,8 @@
 import Institution from "../models/institution.model.js";
 import { getOrCreateUser } from "../utils/userSync.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("institutions");
 
 const ensureInstitutionVisible = (user, institution) => {
   if (!user || !institution) return false;
@@ -39,7 +42,7 @@ export const getMyInstitutions = async (req, res) => {
 
     res.status(200).json({ success: true, institutions: enriched });
   } catch (error) {
-    console.error("Get my institutions error:", error);
+    log.error("Get my institutions error:", error);
     res.status(500).json({ success: false, message: "Failed to load institutions" });
   }
 };
@@ -65,7 +68,7 @@ export const getInstitutionById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get institution by id error:", error);
+    log.error("Get institution by id error:", error);
     res.status(500).json({ success: false, message: "Failed to load institution" });
   }
 };

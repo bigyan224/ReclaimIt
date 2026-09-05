@@ -10,6 +10,7 @@ import RecentItemsList from "../../components/RecentItemsList";
 import { useI18n } from "../../i18n/I18nProvider";
 import * as Location from "expo-location";
 import socketService from "../../services/socket";
+import { getApiToken } from "../../lib/authToken";
 
 let cachedItems = null;
 let cachedNotifications = null;
@@ -398,10 +399,7 @@ export default function Page() {
     setLoading(true);
     setError(null);
     try {
-      const token = await getTokenRef.current({ skipCache: true }).catch(err => {
-        console.error('getToken failed:', err);
-        return null;
-      });
+      const token = await getApiToken(getTokenRef.current);
       const api = getAuthenticatedApi(token, getTokenRef.current);
 
       const itemsPromise = withColdStartRetry(() => api.getItems());
@@ -445,7 +443,8 @@ export default function Page() {
   // Silent background refresh (no spinner) used on tab focus
   const silentRefresh = useCallback(async () => {
     try {
-      const token = await getTokenRef.current().catch(() => null);
+      const token = await getApiToken(getTokenRef.current);
+      if (!token) return;
       const api = getAuthenticatedApi(token, getTokenRef.current);
       const [itemsData, notificationsData] = await Promise.all([
         api.getItems().catch(() => null),
@@ -499,13 +498,10 @@ export default function Page() {
       if (!homeDataFetchPromise) {
         homeDataFetchPromise = (async () => {
           try {
-            const token = await getTokenRef.current({ skipCache: true }).catch(err => {
-              console.error('getToken failed:', err);
-              return null;
-            });
-            const api = getAuthenticatedApi(token, getTokenRef.current);
+      const token = await getApiToken(getTokenRef.current);
+      const api = getAuthenticatedApi(token, getTokenRef.current);
 
-            const itemsPromise = withColdStartRetry(() => api.getItems());
+      const itemsPromise = withColdStartRetry(() => api.getItems());
             const notificationsPromise = token ? withColdStartRetry(() => api.getNotifications()).catch(() => ({ notifications: [], unreadCount: 0 })) : Promise.resolve({ notifications: [], unreadCount: 0 });
             const institutionsPromise = withColdStartRetry(() => api.getMyInstitutions()).catch(() => ({ institutions: [] }));
 
@@ -569,7 +565,8 @@ export default function Page() {
       const { latitude, longitude } = pos.coords;
       setLocation({ latitude, longitude });
       try {
-        const token = await getTokenRef.current({ skipCache: true });
+        const token = await getApiToken(getTokenRef.current);
+        if (!token) return;
         const api = getAuthenticatedApi(token, getTokenRef.current);
         const data = await api.getItems({ type: 'LOST', near: `${latitude},${longitude}`, radius: '50' });
         cachedNearbyItems = data?.items ?? [];
@@ -585,7 +582,8 @@ export default function Page() {
     if (!institutionItems.length && institutions.length) {
       (async () => {
         try {
-          const token = await getTokenRef.current({ skipCache: true });
+          const token = await getApiToken(getTokenRef.current);
+          if (!token) return;
           const api = getAuthenticatedApi(token, getTokenRef.current);
           fetchInstitutionItems(api, institutions);
         } catch (err) {
@@ -611,7 +609,7 @@ export default function Page() {
     if (!user?.id) return;
     const ensureSocket = async () => {
       try {
-        const token = await getTokenRef.current().catch(() => null);
+        const token = await getApiToken(getTokenRef.current);
         if (!socketService.isConnected()) {
           socketService.connect(user.id, [], token);
         }

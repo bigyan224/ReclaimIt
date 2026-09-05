@@ -10,7 +10,6 @@ const router = express.Router();
  * Creates user in Mongo if not exists
  */
 router.post("/", requireAuth, async (req, res) => {
-  console.log("🔥 /api/users hit");
   try {
     const { fullName, agreedToTerms } = req.body;
     const clerkUserId = req.clerkUserId;
@@ -36,7 +35,7 @@ router.post("/", requireAuth, async (req, res) => {
 
     res.status(200).json(user);
   } catch (error) {
-    console.error("User sync error:", error);
+    log.error("User sync error:", error);
     res.status(500).json({ error: "Failed to sync user" });
   }
 });
@@ -51,7 +50,7 @@ router.get("/me", requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
   } catch (error) {
-    console.error("Get user error:", error);
+    log.error("Get user error:", error);
     res.status(500).json({ error: "Failed to fetch user" });
   }
 });
@@ -70,7 +69,7 @@ router.patch("/me/terms", requireAuth, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
   } catch (error) {
-    console.error("Accept terms error:", error);
+    log.error("Accept terms error:", error);
     res.status(500).json({ error: "Failed to accept terms" });
   }
 });

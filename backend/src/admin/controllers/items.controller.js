@@ -5,6 +5,9 @@ import Notification from "../../models/notification.model.js";
 import { ITEM_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { itemInstitutionFilter } from "../utils/institutionFilter.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-items");
 import { safeRegex } from "../utils/safeSearch.js";
 
 export const listItems = async (req, res) => {
@@ -38,7 +41,7 @@ export const listItems = async (req, res) => {
 
     res.status(200).json({ success: true, items, pagination: buildPagination({ page, limit, total }) });
   } catch (error) {
-    console.error("Admin list items error:", error);
+    log.error("Admin list items error:", error);
     res.status(500).json({ success: false, message: "Failed to load items" });
   }
 };
@@ -55,9 +58,10 @@ export const updateItemStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Item not found" });
     }
 
+    log.info("Admin changed item status", { itemId: String(item._id), status, by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, item });
   } catch (error) {
-    console.error("Admin update item status error:", error);
+    log.error("Admin update item status error:", error);
     res.status(500).json({ success: false, message: "Failed to update item status" });
   }
 };
@@ -76,9 +80,10 @@ export const quickEditItem = async (req, res) => {
       return res.status(404).json({ success: false, message: "Item not found" });
     }
 
+    log.info("Admin edited item", { itemId: String(item._id), fields: Object.keys(patch), by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, item });
   } catch (error) {
-    console.error("Admin quick edit item error:", error);
+    log.error("Admin quick edit item error:", error);
     res.status(500).json({ success: false, message: "Failed to edit item" });
   }
 };
@@ -94,7 +99,7 @@ export const deleteItemAsAdmin = async (req, res) => {
       try {
         await cloudinary.uploader.destroy(item.image.publicId);
       } catch (error) {
-        console.warn("Admin Cloudinary cleanup failed:", error?.message || error);
+        log.warn("Admin Cloudinary cleanup failed", error?.message || error);
       }
     }
 
@@ -111,9 +116,10 @@ export const deleteItemAsAdmin = async (req, res) => {
 
     await item.deleteOne();
 
+    log.info("Admin deleted item", { itemId: String(item._id), by: String(req.adminUser?._id || req.clerkUserId) });
     res.status(200).json({ success: true, message: "Item deleted" });
   } catch (error) {
-    console.error("Admin delete item error:", error);
+    log.error("Admin delete item error:", error);
     res.status(500).json({ success: false, message: "Failed to delete item" });
   }
 };

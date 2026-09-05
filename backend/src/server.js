@@ -8,13 +8,16 @@ import { setupSocketHandlers } from "./config/socket.js";
 
 import job from "./config/cron.js";
 import tempImageCleanupJob from "./config/tempImageCleanup.js";
+import { createLogger } from "./config/logger.js";
+
+const log = createLogger("server");
 
 dotenv.config();
 
 if (process.env.NODE_ENV === "production") {
   job.start();
   tempImageCleanupJob.start();
-  console.log("✅ Temp image cleanup job started (runs every 30 minutes)");
+  log.info("Temp image cleanup job started (runs every 30 minutes)");
 }
 
 const PORT = process.env.PORT || 5001;
@@ -40,12 +43,13 @@ setupSocketHandlers(io);
 initDB()
   .then(() => {
     server.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Backend (HTTP + Express) is running at http://localhost:${PORT}`);
-      console.log(`✅ Socket.io (WebSocket) is listening on the same port: ${PORT}`);
-      console.log(`📡 Clients should connect to: http://YOUR_IP:${PORT}`);
+      log.info(`Backend listening on :${PORT}`, {
+        env: process.env.NODE_ENV || "development",
+        logLevel: process.env.LOG_LEVEL || "(default)",
+      });
     });
   })
   .catch((error) => {
-    console.error("❌ Failed to start server:", error);
+    log.error("Failed to start server", error);
     process.exit(1);
   });

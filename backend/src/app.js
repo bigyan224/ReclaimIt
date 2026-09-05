@@ -9,6 +9,10 @@ import chatRoute from "./routes/chat.js";
 import institutionsRoute from "./routes/institutions.js";
 import adminRoute from "./admin/routes.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
+import { requestLogger } from "./middleware/requestLogger.js";
+import { createLogger } from "./config/logger.js";
+
+const log = createLogger("app");
 
 const app = express();
 
@@ -46,6 +50,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(requestLogger);
 app.use("/api/", apiLimiter);
 
 app.use("/api/users", usersRoute);
@@ -69,7 +74,7 @@ app.use((req, res) => {
 // Global error handler — never leak stacks to clients
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  log.error("Unhandled error", { method: req.method, path: req.originalUrl, err });
 
   if (err?.name === "MulterError" || err?.message === "Invalid file type. Only JPEG, JPG, PNG, and WEBP are allowed.") {
     const msg = err.code === "LIMIT_FILE_SIZE"

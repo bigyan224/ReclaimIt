@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
 import "dotenv/config";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("db");
 
 // Database initialization function
 export async function initDB() {
@@ -10,9 +13,9 @@ export async function initDB() {
       dbName: "reclaimit",
     });
     
-    console.log("✅ Connected to MongoDB");
+    log.info("Connected to MongoDB");
   } catch (error) {
-    console.error("❌ Error connecting to MongoDB:", error);
+    log.error("Error connecting to MongoDB", error);
     process.exit(1);
   }
 }

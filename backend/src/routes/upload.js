@@ -32,7 +32,7 @@ router.post("/temp", requireAuth, uploadLimiter, uploadDailyQuota, uploadTemp.si
       publicId: cloudinaryResult.public_id,
     });
   } catch (error) {
-    console.error("Error in temp upload:", error);
+    log.error("Error in temp upload:", error);
     res.status(500).json({
       success: false,
       error: "Failed to process image upload",

@@ -1,6 +1,9 @@
 import cron from "cron";
 import cloudinary from "./cloudinary.js";
 import Item from "../models/item.model.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("cleanup");
 
 // Cleanup threshold: 1 hour in milliseconds
 const CLEANUP_THRESHOLD_MS = 60 * 60 * 1000;
@@ -17,7 +20,7 @@ const CLEANUP_THRESHOLD_MS = 60 * 60 * 1000;
  *    - NOT referenced in any Item.image.publicId
  */
 const cleanupTempImages = async () => {
-  console.log("[Cleanup] Starting temp image cleanup job...");
+  log.debug("Starting temp image cleanup job");
 
   try {
     // Fetch all images from reclaimit/temp folder
@@ -28,11 +31,11 @@ const cleanupTempImages = async () => {
     });
 
     if (!result.resources || result.resources.length === 0) {
-      console.log("[Cleanup] No temp images found.");
+      log.debug("No temp images found");
       return;
     }
 
-    console.log(`[Cleanup] Found ${result.resources.length} temp images to check.`);
+    log.debug("Temp images to check", { count: result.resources.length });
 
     const now = Date.now();
     let deletedCount = 0;
@@ -61,15 +64,15 @@ const cleanupTempImages = async () => {
       try {
         await cloudinary.uploader.destroy(resource.public_id);
         deletedCount++;
-        console.log(`[Cleanup] Deleted orphaned image: ${resource.public_id}`);
+        log.debug("Deleted orphaned image", { publicId: resource.public_id });
       } catch (deleteError) {
-        console.error(`[Cleanup] Failed to delete ${resource.public_id}:`, deleteError.message);
+        log.warn("Failed to delete orphaned image", { publicId: resource.public_id, err: deleteError });
       }
     }
 
-    console.log(`[Cleanup] Completed. Deleted: ${deletedCount}, Skipped: ${skippedCount}`);
+    log.info("Temp image cleanup completed", { deleted: deletedCount, skipped: skippedCount });
   } catch (error) {
-    console.error("[Cleanup] Error during temp image cleanup:", error.message);
+    log.error("Error during temp image cleanup", error);
   }
 };
 

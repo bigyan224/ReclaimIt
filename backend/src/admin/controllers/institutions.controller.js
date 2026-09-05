@@ -97,7 +97,7 @@ export const listInstitutions = async (req, res) => {
       .status(200)
       .json({ success: true, institutions: enriched, pagination: buildPagination({ page, limit, total }) });
   } catch (error) {
-    console.error("Admin list institutions error:", error);
+    log.error("Admin list institutions error:", error);
     res.status(500).json({ success: false, message: "Failed to load institutions" });
   }
 };
@@ -159,7 +159,7 @@ export const createInstitution = async (req, res) => {
     if (error?.code === 11000) {
       return res.status(409).json({ success: false, message: "Slug already in use" });
     }
-    console.error("Admin create institution error:", error);
+    log.error("Admin create institution error:", error);
     if (error?.message?.startsWith("Invalid email domain") || error?.message?.startsWith("Invalid email domain or email") || error?.message?.startsWith("Invalid admin email")) {
       return res.status(400).json({ success: false, message: error.message });
     }
@@ -203,7 +203,7 @@ export const getInstitutionById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Admin get institution error:", error);
+    log.error("Admin get institution error:", error);
     res.status(500).json({ success: false, message: "Failed to load institution" });
   }
 };
@@ -275,7 +275,7 @@ export const updateInstitution = async (req, res) => {
     if (error?.code === 11000) {
       return res.status(409).json({ success: false, message: "Slug already in use" });
     }
-    console.error("Admin update institution error:", error);
+    log.error("Admin update institution error:", error);
     if (error?.message?.startsWith("Invalid email domain") || error?.message?.startsWith("Invalid email domain or email") || error?.message?.startsWith("Invalid admin email")) {
       return res.status(400).json({ success: false, message: error.message });
     }
@@ -309,7 +309,7 @@ export const archiveInstitution = async (req, res) => {
     }
     res.status(200).json({ success: true, institution });
   } catch (error) {
-    console.error("Admin archive institution error:", error);
+    log.error("Admin archive institution error:", error);
     res.status(500).json({ success: false, message: "Failed to archive institution" });
   }
 };
@@ -336,7 +336,7 @@ export const restoreInstitution = async (req, res) => {
     }
     res.status(200).json({ success: true, institution });
   } catch (error) {
-    console.error("Admin restore institution error:", error);
+    log.error("Admin restore institution error:", error);
     res.status(500).json({ success: false, message: "Failed to restore institution" });
   }
 };
@@ -405,7 +405,7 @@ export const listInstitutionMembers = async (req, res) => {
       .status(200)
       .json({ success: true, members: enriched, pagination: buildPagination({ page, limit, total }) });
   } catch (error) {
-    console.error("Admin list institution members error:", error);
+    log.error("Admin list institution members error:", error);
     res.status(500).json({ success: false, message: "Failed to load members" });
   }
 };

@@ -269,6 +269,24 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
       }
     },
 
+    getMyItemsSummary: async () => {
+      try {
+        const response = await authenticatedApi.get('/items/mine/summary');
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching my items summary:', error);
+        throw error;
+      }
+    },
+    getChat: async (chatId) => {
+      try {
+        const response = await authenticatedApi.get(`/chats/${chatId}`);
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching chat:', error);
+        throw error;
+      }
+    },
     getMyMatches: async () => {
       try {
         const response = await authenticatedApi.get('/matches/my/items');
