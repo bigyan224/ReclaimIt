@@ -7,30 +7,59 @@ import mongoose from 'mongoose';
 // Store connected users: { userId: socketId }
 const connectedUsers = new Map();
 
+// Resolve the verified Clerk user id for a socket (set by auth middleware)
+const socketClerkId = (socket) => socket.userId || null;
+
+async function getUserDocByClerkId(clerkId) {
+  if (!clerkId) return null;
+  try {
+    return await User.findOne({ clerkId });
+  } catch {
+    return null;
+  }
+}
+
+// Verify the socket owner participates in the chat. Never trust client userId.
+async function isChatParticipant(chatId, clerkId) {
+  if (!chatId || !clerkId) return false;
+  try {
+    const chat = await Chat.findById(chatId).populate('participants', 'clerkId');
+    if (!chat) return false;
+    return chat.participants.some((p) => p.clerkId === clerkId);
+  } catch {
+    return false;
+  }
+}
+
 export const setupSocketHandlers = (io) => {
-  // Middleware to authenticate socket connections
+  // Middleware to authenticate socket connections — strict, no dev bypass.
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
 
       if (!token) {
-        console.log('⚠️  Socket connection without token - allowing in dev mode');
-        return next(); // Allow in dev mode
+        return next(new Error("Unauthorized: missing token"));
       }
 
+      let decoded;
       try {
-        const decoded = await clerkClient.verifyToken(token);
-        socket.userId = decoded.sub; // Store user ID in socket
-        console.log('✅ Socket authenticated for user:', decoded.sub);
-        next();
+        decoded = await clerkClient.verifyToken(token);
       } catch (err) {
-        console.log('⚠️  Token verification failed:', err.message, '- allowing anyway in dev mode');
-        // Allow connection anyway for development (remove in production)
-        next();
+        return next(new Error("Unauthorized: invalid token"));
       }
+
+      // Banned users get no socket access (mirrors REST requireAuth)
+      const userDoc = await getUserDocByClerkId(decoded.sub);
+      if (userDoc && userDoc.status === "BANNED") {
+        return next(new Error("Forbidden: account banned"));
+      }
+
+      socket.userId = decoded.sub; // Verified Clerk id — sole identity source
+      console.log('✅ Socket authenticated for user:', decoded.sub);
+      next();
     } catch (error) {
       console.error('Socket auth error:', error);
-      next(error);
+      next(new Error("Unauthorized"));
     }
   });
 
@@ -41,19 +70,29 @@ export const setupSocketHandlers = (io) => {
     console.log(`   Remote Address: ${socket.handshake.address}`);
 
     // User authentication and joining
-    socket.on("user:join", async ({ userId, chatIds = [] }) => {
+    socket.on("user:join", async ({ chatIds = [] } = {}) => {
       try {
+        // SECURITY: identity comes from the verified token only — ignore client userId
+        const userId = socketClerkId(socket);
+        if (!userId) {
+          return socket.emit("connection:error", { message: "Unauthorized" });
+        }
         // Store user connection
         connectedUsers.set(userId, socket.id);
-        socket.userId = userId; // Store on socket for easy access
         console.log(`👤 User ${userId} connected with socket ${socket.id}`);
 
-        // Join all chat rooms for this user
-        if (chatIds && chatIds.length > 0) {
-          chatIds.forEach((chatId) => {
-            socket.join(`chat:${chatId}`);
-            console.log(`  → Joined chat room: ${chatId}`);
-          });
+        // Join only chat rooms this user participates in
+        const joinedChatIds = [];
+        if (Array.isArray(chatIds) && chatIds.length > 0) {
+          for (const chatId of chatIds) {
+            if (await isChatParticipant(chatId, userId)) {
+              socket.join(`chat:${chatId}`);
+              joinedChatIds.push(chatId);
+              console.log(`  → Joined chat room: ${chatId}`);
+            } else {
+              console.log(`  → Denied join for chat room: ${chatId} (not a participant)`);
+            }
+          }
         }
 
         // Notify user they're connected
@@ -62,12 +101,10 @@ export const setupSocketHandlers = (io) => {
           userId,
         });
 
-        // Notify all chats that user is online
-        if (chatIds && chatIds.length > 0) {
-          chatIds.forEach((chatId) => {
-            socket.to(`chat:${chatId}`).emit("user:online", { userId, chatId });
-          });
-        }
+        // Notify chats the user actually joined that they are online
+        joinedChatIds.forEach((chatId) => {
+          socket.to(`chat:${chatId}`).emit("user:online", { userId, chatId });
+        });
       } catch (error) {
         console.error("Error in user:join:", error);
         socket.emit("connection:error", { message: "Failed to join" });
@@ -75,7 +112,15 @@ export const setupSocketHandlers = (io) => {
     });
 
     // Join a specific chat room
-    socket.on("chat:join", async ({ chatId, userId }) => {
+    socket.on("chat:join", async ({ chatId } = {}) => {
+      const userId = socketClerkId(socket);
+      if (!userId) {
+        return socket.emit("connection:error", { message: "Unauthorized" });
+      }
+      if (!(await isChatParticipant(chatId, userId))) {
+        console.log(`⛔ Denied chat:join for user ${userId} in chat ${chatId}`);
+        return socket.emit("connection:error", { message: "Not a participant" });
+      }
       socket.join(`chat:${chatId}`);
       console.log(`👤 User ${userId} joined chat room: ${chatId}`);
 
@@ -126,7 +171,9 @@ export const setupSocketHandlers = (io) => {
     });
 
     // Leave a chat room
-    socket.on("chat:leave", ({ chatId, userId }) => {
+    socket.on("chat:leave", ({ chatId } = {}) => {
+      const userId = socketClerkId(socket);
+      if (!userId || !chatId) return;
       socket.leave(`chat:${chatId}`);
       console.log(`👤 User ${userId} left chat room: ${chatId}`);
 
@@ -134,25 +181,21 @@ export const setupSocketHandlers = (io) => {
     });
 
     // Query whether a specific user is online (callback) - used by clients when chatInfo arrives
-    socket.on('user:status:query', async ({ userId, chatId }, cb) => {
+    // SECURITY: chatId required, and both requester and target must participate in it
+    socket.on('user:status:query', async ({ userId, chatId } = {}, cb) => {
       try {
-        const isOnline = connectedUsers.has(userId);
-        // If a chatId is provided, verify the queried user is a participant of that chat
-        if (chatId && isOnline) {
-          try {
-            const chatDoc = await Chat.findById(chatId).populate('participants', 'clerkId');
-            if (chatDoc) {
-              const isParticipant = chatDoc.participants.some(p => p.clerkId === userId);
-              if (!isParticipant) {
-                console.log(`user:status:query - user ${userId} is not participant of chat ${chatId}`);
-                return cb && cb({ online: false });
-              }
-            }
-          } catch (err) {
-            console.error('Error validating user participant for status query:', err);
-          }
+        const requesterId = socketClerkId(socket);
+        if (!requesterId || !chatId || !userId) {
+          return cb && cb({ online: false });
         }
-
+        const [requesterOk, targetOk] = await Promise.all([
+          isChatParticipant(chatId, requesterId),
+          isChatParticipant(chatId, userId),
+        ]);
+        if (!requesterOk || !targetOk) {
+          return cb && cb({ online: false });
+        }
+        const isOnline = connectedUsers.has(userId);
         console.log(`user:status:query - user ${userId} online=${isOnline}`);
         return cb && cb({ online: isOnline });
       } catch (err) {
@@ -164,7 +207,22 @@ export const setupSocketHandlers = (io) => {
     // Send a message
     socket.on("message:send", async (data) => {
       try {
-        const { chatId, senderId, content, senderInfo } = data;
+        // SECURITY: sender identity comes from the verified token, never the client
+        const senderId = socketClerkId(socket);
+        const { chatId, content } = data || {};
+        if (!senderId || !chatId) {
+          return socket.emit("message:error", { error: "Unauthorized", tempId: data?.tempId });
+        }
+        if (!(await isChatParticipant(chatId, senderId))) {
+          console.log(`⛔ Denied message:send for user ${senderId} in chat ${chatId}`);
+          return socket.emit("message:error", { error: "Not a participant", tempId: data.tempId });
+        }
+
+        // Resolve sender profile server-side (ignore client senderInfo)
+        const senderDoc = await User.findOne({ clerkId: senderId });
+        const senderInfo = senderDoc
+          ? { _id: senderDoc._id, clerkId: senderDoc.clerkId, name: senderDoc.name, email: senderDoc.email }
+          : { clerkId: senderId };
 
         console.log(`💬 Message from ${senderId} in chat ${chatId}`);
 
@@ -187,12 +245,7 @@ export const setupSocketHandlers = (io) => {
         const chat = await Chat.findById(chatId);
         if (chat) {
           try {
-            // Resolve sender to ObjectId if possible (senderId is clerkId string from client)
-            let senderObjectId = null;
-            if (typeof senderId === 'string') {
-              const senderDoc = await User.findOne({ clerkId: senderId });
-              if (senderDoc) senderObjectId = senderDoc._id;
-            }
+            const senderObjectId = senderDoc ? senderDoc._id : null;
 
             chat.lastMessage = content?.substring(0, 100) || '';
             chat.lastMessageAt = new Date();
@@ -221,8 +274,10 @@ export const setupSocketHandlers = (io) => {
       }
     });
 
-    // Typing indicator
-    socket.on("typing:start", ({ chatId, userId, userName }) => {
+    // Typing indicator (participant-only, verified identity)
+    socket.on("typing:start", async ({ chatId, userName } = {}) => {
+      const userId = socketClerkId(socket);
+      if (!userId || !(await isChatParticipant(chatId, userId))) return;
       socket.to(`chat:${chatId}`).emit("typing:update", {
         chatId,
         userId,
@@ -231,7 +286,9 @@ export const setupSocketHandlers = (io) => {
       });
     });
 
-    socket.on("typing:stop", ({ chatId, userId }) => {
+    socket.on("typing:stop", async ({ chatId } = {}) => {
+      const userId = socketClerkId(socket);
+      if (!userId || !(await isChatParticipant(chatId, userId))) return;
       socket.to(`chat:${chatId}`).emit("typing:update", {
         chatId,
         userId,
@@ -240,8 +297,11 @@ export const setupSocketHandlers = (io) => {
     });
 
     // Mark messages as read
-    socket.on("messages:read", async ({ chatId, userId, messageIds }) => {
+    socket.on("messages:read", async ({ chatId, messageIds } = {}) => {
       try {
+        // SECURITY: reader identity comes from the verified token, never the client
+        const userId = socketClerkId(socket);
+        if (!userId || !(await isChatParticipant(chatId, userId))) return;
         console.log(`📖 User ${userId} read ${messageIds?.length || 0} messages in chat ${chatId}`);
 
         // Find user by clerkId to get the ObjectId stored in messages

@@ -2,7 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Platform, Alert, Linking } from 'react-native';
 import * as Location from "expo-location";
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useImageUpload } from './useImageUpload';
+
+// Downscale camera photos before upload: 4000px+ (~5MB) -> 1600px (~500KB)
+const MAX_UPLOAD_WIDTH = 1600;
 import { useI18n } from '../i18n/I18nProvider';
 import { useAuth } from '@clerk/clerk-expo';
 import { getAuthenticatedApi } from '../services/api';
@@ -164,16 +168,33 @@ export const useItemReportForm = (initialType = 'LOST', initialData = null, skip
         mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
-        base64: true,
       });
 
       if (!result.canceled) {
         setError('');
-        setImagePreview(result.assets[0].uri);
+        const picked = result.assets[0];
+        let uploadUri = picked.uri;
+
+        // Downscale huge photos (and normalize HEIC/PNG -> JPEG) before upload.
+        // Skipped for small images to avoid pointless upscaling.
+        try {
+          if ((picked.width || 0) > MAX_UPLOAD_WIDTH) {
+            const resized = await manipulateAsync(
+              picked.uri,
+              [{ resize: { width: MAX_UPLOAD_WIDTH } }],
+              { compress: 0.8, format: SaveFormat.JPEG }
+            );
+            uploadUri = resized.uri;
+          }
+        } catch (resizeError) {
+          console.warn('Image resize failed, uploading original:', resizeError?.message);
+        }
+
+        setImagePreview(uploadUri);
         setUploading(true);
         setUploadProgress(0);
 
-        const imageData = await uploadImage(result.assets[0].uri, setUploadProgress);
+        const imageData = await uploadImage(uploadUri, setUploadProgress);
         setUploadProgress(100);
 
         setFormData(prev => ({

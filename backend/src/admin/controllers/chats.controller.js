@@ -45,6 +45,19 @@ export const getChatTranscript = async (req, res) => {
       return res.status(404).json({ success: false, message: "Chat not found" });
     }
 
+    // SECURITY: institution admins may only read chats involving their institutions' users
+    if (!req.isMasterAdmin) {
+      if (!req.isInstitutionAdmin) {
+        return res.status(403).json({ success: false, message: "Admin access required" });
+      }
+      const users = await User.find(userInstitutionFilter(req)).select("_id").lean();
+      const allowedIds = new Set(users.map((u) => String(u._id)));
+      const involved = (chat.participants || []).some((p) => allowedIds.has(String(p._id || p)));
+      if (!involved) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+    }
+
     const messages = await Message.find({ chat: chat._id }).populate("sender", "name email clerkId").sort({ createdAt: 1 });
 
     res.status(200).json({ success: true, chat, messages });

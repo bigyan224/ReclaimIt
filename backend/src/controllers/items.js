@@ -55,6 +55,16 @@ export const reportItem = async (req, res) => {
       });
     }
 
+    // Validate coordinates are finite numbers in range (rejects NaN/strings/undefined)
+    const lng = Number(coords?.longitude);
+    const lat = Number(coords?.latitude);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid coordinates are required",
+      });
+    }
+
     let imageData = null;
     if (image) {
       if (typeof image === "string") {
@@ -93,7 +103,7 @@ export const reportItem = async (req, res) => {
         name: location,
         coordinates: {
           type: "Point",
-          coordinates: [coords.longitude, coords.latitude], // [lng, lat]
+          coordinates: [lng, lat], // [lng, lat] — validated finite numbers above
         },
       },
       dateTime: new Date(date),
@@ -275,6 +285,15 @@ export const updateItem = async (req, res) => {
       });
     }
 
+    const updLng = Number(coords?.longitude);
+    const updLat = Number(coords?.latitude);
+    if (!Number.isFinite(updLng) || !Number.isFinite(updLat) || updLng < -180 || updLng > 180 || updLat < -90 || updLat > 90) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid coordinates are required',
+      });
+    }
+
     if (imageData?.publicId) {
       try {
         await cloudinary.api.resource(imageData.publicId);
@@ -298,7 +317,7 @@ export const updateItem = async (req, res) => {
       name: location,
       coordinates: {
         type: 'Point',
-        coordinates: [coords.longitude, coords.latitude],
+        coordinates: [updLng, updLat],
       },
     };
     item.dateTime = new Date(date);

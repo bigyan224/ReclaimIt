@@ -253,13 +253,40 @@ export const sendMessage = async (req, res) => {
   try {
     const { clerkUserId } = req;
     const { chatId } = req.params;
-    const { content, type = "text", imageUrl } = req.body;
+    const { content, type = "text", imageUrl = null } = req.body;
 
     if (!content || content.trim() === "") {
       return res.status(400).json({
         success: false,
         message: "Message content is required"
       });
+    }
+
+    // SECURITY: clients may only send text — voice/system types are server-side only
+    if (type !== "text") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid message type"
+      });
+    }
+
+    if (content.trim().length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: "Message is too long (max 2000 characters)"
+      });
+    }
+
+    // imageUrl, when provided, must be a short https URL (no data: URIs, no JS)
+    let safeImageUrl = null;
+    if (imageUrl !== null && imageUrl !== undefined && imageUrl !== "") {
+      if (typeof imageUrl !== "string" || imageUrl.length > 2000 || !imageUrl.startsWith("https://")) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image URL"
+        });
+      }
+      safeImageUrl = imageUrl;
     }
 
     const user = await getOrCreateUser(clerkUserId);
@@ -295,8 +322,8 @@ export const sendMessage = async (req, res) => {
       chat: chatId,
       sender: user._id,
       content: content.trim(),
-      type,
-      imageUrl,
+      type: "text",
+      imageUrl: safeImageUrl,
       readBy: [user._id] // Sender has read it
     });
 

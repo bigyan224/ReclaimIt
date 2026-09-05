@@ -36,6 +36,7 @@ const MessageSchema = new mongoose.Schema(
     // Optional image URL for image messages
     imageUrl: {
       type: String,
+      maxlength: 2000,
     },
 
     // Optional voice metadata for voice messages

@@ -3,23 +3,15 @@ import User from "../../models/user.model.js";
 
 const CLERK_CLOCK_SKEW_MS = Number(process.env.CLERK_CLOCK_SKEW_MS || 5 * 60 * 1000);
 
+// SECURITY: Only trust server-set publicMetadata.role.
+// unsafeMetadata is writable by the user from the frontend — trusting it
+// lets ANY signed-in user escalate to master admin.
 function hasAdminMetadata(payload, clerkUser) {
-  const payloadRole =
-    payload?.publicMetadata?.role ||
-    payload?.metadata?.role ||
-    payload?.["public_metadata"]?.role ||
-    payload?.unsafeMetadata?.role ||
-    payload?.["unsafe_metadata"]?.role;
+  const payloadRole = payload?.publicMetadata?.role;
 
   if (payloadRole && String(payloadRole).toLowerCase() === "admin") return true;
 
-  const clerkRole =
-    clerkUser?.publicMetadata?.role ||
-    clerkUser?.unsafeMetadata?.role ||
-    clerkUser?.privateMetadata?.role ||
-    clerkUser?.["public_metadata"]?.role ||
-    clerkUser?.["unsafe_metadata"]?.role ||
-    clerkUser?.["private_metadata"]?.role;
+  const clerkRole = clerkUser?.publicMetadata?.role;
 
   if (clerkRole && String(clerkRole).toLowerCase() === "admin") return true;
 
@@ -108,6 +100,11 @@ export const requireAdminPanelAccess = async (req, res, next) => {
     }
     req.adminUser = req.localUser;
     req.isInstitutionAdmin = !!(req.localUser && req.localUser.adminInstitutions && req.localUser.adminInstitutions.length > 0);
+    // SECURITY: panel access requires master admin OR institution admin.
+    // Plain users get empty-scope filters in controllers, so deny them here.
+    if (!req.isMasterAdmin && !req.isInstitutionAdmin) {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
     next();
   } catch (error) {
     console.error("Auth error:", error);

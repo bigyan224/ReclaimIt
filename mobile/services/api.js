@@ -269,15 +269,6 @@ export const getAuthenticatedApi = (token, getTokenFn = null) => {
       }
     },
 
-    getMyItems: async () => {
-      try {
-        const response = await authenticatedApi.get('/items');
-        return response.data;
-      } catch (error) {
-        console.error('Error fetching my items:', error);
-        throw error;
-      }
-    },
     getMyMatches: async () => {
       try {
         const response = await authenticatedApi.get('/matches/my/items');

@@ -4,6 +4,7 @@ import User from "../../models/user.model.js";
 import { USER_ROLES, USER_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { userInstitutionFilter } from "../utils/institutionFilter.js";
+import { safeRegex } from "../utils/safeSearch.js";
 
 export const listUsers = async (req, res) => {
   try {
@@ -15,11 +16,12 @@ export const listUsers = async (req, res) => {
     const filter = { ...userInstitutionFilter(req) };
     if (USER_STATUSES.includes(status)) filter.status = status;
     if (USER_ROLES.includes(role)) filter.role = role;
-    if (search) {
+    const searchPattern = safeRegex(search);
+    if (searchPattern) {
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { clerkId: { $regex: search, $options: "i" } },
+        { name: searchPattern },
+        { email: searchPattern },
+        { clerkId: searchPattern },
       ];
     }
 

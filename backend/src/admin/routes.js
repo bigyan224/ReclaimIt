@@ -20,18 +20,20 @@ import {
 } from "./controllers/institutions.controller.js";
 import { getAdminUser } from "./controllers/user.controller.js";
 import { requireAdminPanelAccess, requireInstitutionAccess, requireMasterAdmin } from "./middleware/adminAuth.middleware.js";
+import { adminLimiter } from "../middleware/rateLimit.js";
 
 const router = express.Router();
 
-// All read/panel routes — any signed-in user can access, controllers filter data by role
-router.use("/dashboard", requireAdminPanelAccess);
-router.use("/items", requireAdminPanelAccess);
-router.use("/users", requireAdminPanelAccess);
-router.use("/matching", requireAdminPanelAccess);
-router.use("/chats", requireAdminPanelAccess);
+// Panel routes — master admins AND institution admins only (enforced in
+// requireAdminPanelAccess); controllers further scope data by role
+router.use("/dashboard", requireAdminPanelAccess, adminLimiter);
+router.use("/items", requireAdminPanelAccess, adminLimiter);
+router.use("/users", requireAdminPanelAccess, adminLimiter);
+router.use("/matching", requireAdminPanelAccess, adminLimiter);
+router.use("/chats", requireAdminPanelAccess, adminLimiter);
 
 // Institution routes — accessible by master admins AND institution admins
-router.use("/institutions", requireInstitutionAccess);
+router.use("/institutions", requireInstitutionAccess, adminLimiter);
 
 // Current user info
 router.get("/me", requireAdminPanelAccess, getAdminUser);

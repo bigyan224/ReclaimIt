@@ -5,6 +5,7 @@ import Notification from "../../models/notification.model.js";
 import { ITEM_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { itemInstitutionFilter } from "../utils/institutionFilter.js";
+import { safeRegex } from "../utils/safeSearch.js";
 
 export const listItems = async (req, res) => {
   try {
@@ -16,12 +17,13 @@ export const listItems = async (req, res) => {
     const filter = { ...itemInstitutionFilter(req) };
     if (ITEM_STATUSES.includes(status)) filter.status = status;
     if (["LOST", "FOUND"].includes(type)) filter.type = type;
-    if (search) {
+    const searchPattern = safeRegex(search);
+    if (searchPattern) {
       filter.$or = [
-        { itemName: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { category: { $regex: search, $options: "i" } },
-        { "location.name": { $regex: search, $options: "i" } },
+        { itemName: searchPattern },
+        { description: searchPattern },
+        { category: searchPattern },
+        { "location.name": searchPattern },
       ];
     }
 

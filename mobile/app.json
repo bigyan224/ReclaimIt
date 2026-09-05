@@ -67,12 +67,12 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": true,
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true,
-            "extraGradleProperties": {
-              "reactNativeArchitectures": "arm64-v8a"
-            }
+                                          "newArchEnabled":  true,
+                                                          "enableProguardInReleaseBuilds":  true,
+                                                          "enableShrinkResourcesInReleaseBuilds":  true,
+                                                          "buildArchs":  [
+                                                              "arm64-v8a"
+                                                          ]
           }
         }
       ],

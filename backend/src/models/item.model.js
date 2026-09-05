@@ -14,27 +14,32 @@ const ItemSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 120,
     },
 
     color: {
       type: String,
       trim: true,
+      maxlength: 60,
     },
 
     brandName: {
       type: String,
       trim: true,
+      maxlength: 60,
     },
 
     description: {
       type: String,
       trim: true,
+      maxlength: 2000,
     },
 
     category: {
       type: String,
       required: true,
       index: true,
+      maxlength: 60,
     },
 
     // Image object with url and publicId for cleanup tracking
@@ -65,6 +70,7 @@ const ItemSchema = new mongoose.Schema(
     location: {
       name: {
         type: String, // human readable (optional but recommended)
+        maxlength: 200,
       },
 
       coordinates: {

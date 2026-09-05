@@ -4,6 +4,7 @@ import { syncUserInstitutionMembership } from "../../utils/userSync.js";
 import { INSTITUTION_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { slugify } from "../utils/slugify.js";
+import { safeRegex } from "../utils/safeSearch.js";
 
 const generateUniqueSlug = async (base) => {
   const seed = slugify(base) || "institution";
@@ -53,11 +54,12 @@ export const listInstitutions = async (req, res) => {
       };
     }
 
-    if (search) {
+    const searchPattern = safeRegex(search);
+    if (searchPattern) {
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { slug: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
+        { name: searchPattern },
+        { slug: searchPattern },
+        { description: searchPattern },
       ];
     }
 
@@ -372,12 +374,13 @@ export const listInstitutionMembers = async (req, res) => {
       filter.adminInstitutions = { $ne: institution._id };
     }
 
-    if (search) {
+    const memberSearchPattern = safeRegex(search);
+    if (memberSearchPattern) {
       filter.$and = [
         {
           $or: [
-            { name: { $regex: search, $options: "i" } },
-            { email: { $regex: search, $options: "i" } },
+            { name: memberSearchPattern },
+            { email: memberSearchPattern },
           ],
         },
       ];

@@ -6,11 +6,12 @@ import {
   cleanupLocalFile,
 } from "../middleware/upload.js";
 import { requireAuth } from "../middleware/clerkAuth.js";
+import { uploadLimiter, uploadDailyQuota } from "../middleware/rateLimit.js";
 
 const router = express.Router();
 
 // Temp upload: store locally → upload to Cloudinary → cleanup
-router.post("/temp", requireAuth, uploadTemp.single("image"), async (req, res) => {
+router.post("/temp", requireAuth, uploadLimiter, uploadDailyQuota, uploadTemp.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No image file provided" });
@@ -41,7 +42,7 @@ router.post("/temp", requireAuth, uploadTemp.single("image"), async (req, res) =
 });
 
 // Legacy route - preserves original functionality without AI detection
-router.post("/image", requireAuth, uploadPermanent.single("image"), (req, res) => {
+router.post("/image", requireAuth, uploadLimiter, uploadDailyQuota, uploadPermanent.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No image file provided" });
   }
