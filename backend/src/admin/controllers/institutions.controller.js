@@ -1,6 +1,9 @@
 import Institution from "../../models/institution.model.js";
 import User from "../../models/user.model.js";
 import { syncUserInstitutionMembership } from "../../utils/userSync.js";
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-institutions");
 import { INSTITUTION_STATUSES } from "../utils/constants.js";
 import { buildPagination, parsePagination } from "../utils/pagination.js";
 import { slugify } from "../utils/slugify.js";

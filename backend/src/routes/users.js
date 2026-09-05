@@ -2,6 +2,9 @@ import express from "express";
 import User from "../models/user.model.js";
 import { requireAuth } from "../middleware/clerkAuth.js";
 import { clerkClient } from "@clerk/clerk-sdk-node";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("users-route");
 
 const router = express.Router();
 

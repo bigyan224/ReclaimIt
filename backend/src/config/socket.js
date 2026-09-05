@@ -3,6 +3,9 @@ import Chat from "../models/chat.model.js";
 import User from "../models/user.model.js";
 import { clerkClient } from "@clerk/clerk-sdk-node";
 import mongoose from 'mongoose';
+import { createLogger } from "./logger.js";
+
+const log = createLogger("socket");
 
 // Store connected users: { userId: socketId }
 const connectedUsers = new Map();
@@ -90,7 +93,7 @@ export const setupSocketHandlers = (io) => {
               joinedChatIds.push(chatId);
               log.debug(`  → Joined chat room: ${chatId}`);
             } else {
-              log.debug(`  → Denied join for chat room: ${chatId} (not a participant)`);
+              log.warn(`  → Denied join for chat room: ${chatId} (not a participant)`);
             }
           }
         }
@@ -118,7 +121,7 @@ export const setupSocketHandlers = (io) => {
         return socket.emit("connection:error", { message: "Unauthorized" });
       }
       if (!(await isChatParticipant(chatId, userId))) {
-        log.debug(`⛔ Denied chat:join for user ${userId} in chat ${chatId}`);
+        log.warn(`⛔ Denied chat:join for user ${userId} in chat ${chatId}`);
         return socket.emit("connection:error", { message: "Not a participant" });
       }
       socket.join(`chat:${chatId}`);
@@ -214,8 +217,8 @@ export const setupSocketHandlers = (io) => {
           return socket.emit("message:error", { error: "Unauthorized", tempId: data?.tempId });
         }
         if (!(await isChatParticipant(chatId, senderId))) {
-          log.debug(`⛔ Denied message:send for user ${senderId} in chat ${chatId}`);
-          return socket.emit("message:error", { error: "Not a participant", tempId: data.tempId });
+          log.warn(`⛔ Denied message:send for user ${senderId} in chat ${chatId}`);
+          return socket.emit("message:error", { error: "Not a participant", tempId: data?.tempId });
         }
 
         // Resolve sender profile server-side (ignore client senderInfo)
@@ -269,7 +272,7 @@ export const setupSocketHandlers = (io) => {
         log.error("Error sending message:", error);
         socket.emit("message:error", {
           error: "Failed to send message",
-          tempId: data.tempId,
+          tempId: data?.tempId,
         });
       }
     });

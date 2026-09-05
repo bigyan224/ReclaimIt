@@ -1,3 +1,7 @@
+import { createLogger } from "../../config/logger.js";
+
+const log = createLogger("admin-user");
+
 export const getAdminUser = async (req, res) => {
   try {
     const localUser = req.localUser;

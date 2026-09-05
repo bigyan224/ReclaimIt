@@ -7,6 +7,9 @@ import {
 } from "../middleware/upload.js";
 import { requireAuth } from "../middleware/clerkAuth.js";
 import { uploadLimiter, uploadDailyQuota } from "../middleware/rateLimit.js";
+import { createLogger } from "../config/logger.js";
+
+const log = createLogger("upload-route");
 
 const router = express.Router();
 
